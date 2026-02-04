@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Plurk Backup Search</title>
+    <link href="static/backup.css" rel="stylesheet">
+    <style>
+        .search-container {
+            max-width: 1200px;
+            margin: 64px auto 20px;
+            padding: 0 20px;
+        }
+
+        .search-box {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .filters {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filter-group label {
+            font-weight: bold;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .filter-group input, .filter-group select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .search-btn {
+            background: #E8AF37;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .search-btn:hover {
+            background: #d99d2a;
+        }
+
+        .search-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 18px;
+        }
+
+        .results-container {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .results-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-bottom: 1px solid #ddd;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .result-item {
+            border-bottom: 1px solid #eee;
+            padding: 15px 20px;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-content {
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .result-meta {
+            font-size: 12px;
+            color: #666;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .result-highlight {
+            background: #fff3cd;
+            padding: 1px 3px;
+            border-radius: 2px;
+        }
+
+        .result-type {
+            background: #007bff;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .result-type.is-response {
+            background: #28a745;
+        }
+
+        .result-type.is-link {
+            background: #6f42c1;
+        }
+
+        .link-url {
+            color: #007bff;
+            font-size: 13px;
+            word-break: break-all;
+            margin-bottom: 5px;
+        }
+
+        .link-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .link-description {
+            color: #555;
+            font-size: 14px;
+        }
+
+        .link-site {
+            color: #888;
+            font-size: 12px;
+        }
+
+        .link-no-og {
+            color: #999;
+            font-style: italic;
+        }
+
+        .link-sources {
+            margin-top: 8px;
+            font-size: 12px;
+        }
+
+        .link-sources a {
+            color: #007bff;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+
+        .link-sources a:hover {
+            text-decoration: underline;
+        }
+
+        .response-highlighted {
+            background: #fff3cd !important;
+            border-left: 3px solid #E8AF37;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .stats {
+            background: #f8f9fa;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #f0f0f0;
+        }
+
+        .pagination button:disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .pagination span {
+            padding: 8px 16px;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .result-item {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .result-item:hover {
+            background: #f8f9fa;
+        }
+
+        #popplurk-responses-holder {
+            overflow-x: hidden;
+            overflow-y: scroll;
+        }
+    </style>
+    <script src="static/sql-wasm.js"></script>
+    <script>
+        // Initialize BackupData before loading data files
+        BackupData = { info: {}, user: {}, indexes: {}, plurks: {}, responses: {} };
+    </script>
+    <script src="data/info.js"></script>
+    <script src="data/user.js"></script>
+</head>
+<body>
+    <div id="top-bar" class="clearfix">
+        <div id="plurk-logo">
+            <a href="/" style="text-decoration: none;">
+                <span class="cmp-plurklogo-white"></span>
+                <span class="cmp-plurk-white"></span>
+            </a>
+        </div>
+        <div id="backup-info"></div>
+    </div>
+
+    <div class="search-container">
+        <div id="loading-section" class="loading">
+            Loading database... This may take a few seconds.
+        </div>
+
+        <div id="stats-section" style="display: none;" class="stats">
+            <span id="search-stats"></span>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="search-query" class="search-input" placeholder="Search plurks and responses..." disabled />
+
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Search In</label>
+                    <select id="search-type" onchange="onSearchTypeChange()">
+                        <option value="all">All Content</option>
+                        <option value="plurks">Plurks Only</option>
+                        <option value="responses">Responses Only</option>
+                        <option value="links">Links (OG metadata)</option>
+                    </select>
+                </div>
+
+                <div class="filter-group" id="search-mode-group">
+                    <label>Search Mode</label>
+                    <select id="search-mode">
+                        <option value="fts">FTS5 (Fast)</option>
+                        <option value="like">LIKE (Flexible)</option>
+                    </select>
+                </div>
+
+                <button id="search-btn" class="search-btn" onclick="performSearch()" disabled>Loading Database...</button>
+            </div>
+        </div>
+
+        <div id="error-section" class="error-message" style="display: none;"></div>
+
+        <div id="results-section" style="display: none;">
+            <div class="results-container">
+                <div class="results-header">
+                    <span id="results-count">Search Results</span>
+                </div>
+                <div id="results-list"></div>
+            </div>
+            <div class="pagination" id="pagination"></div>
+        </div>
+
+        <div id="no-results" class="no-results" style="display: none;">
+            No results found. Try adjusting your search terms.
+        </div>
+    </div>
+
+    <!-- Popup for viewing plurk (same structure as index.html) -->
+    <div id="popplurk" class="popwindow" style="display:none;">
+        <div class="popwindow-overlay"></div>
+        <div class="popwindow-holder">
+            <div id="popplurk-plurk-holder"></div>
+            <div id="popplurk-responses-holder"></div>
+        </div>
+    </div>
+
+    <script>
+        let db = null;
+        let currentPage = 0;
+        let currentQuery = '';
+        let currentSearchType = 'all';
+        const RESULTS_PER_PAGE = 50;
+
+        // Initialize database
+        async function initDatabase() {
+            try {
+                const SQL = await initSqlJs({
+                    locateFile: file => `static/${file}`
+                });
+
+                const response = await fetch('plurks.db');
+                if (!response.ok) {
+                    throw new Error('Database file not found. Run plurk-tools init first.');
+                }
+
+                const buffer = await response.arrayBuffer();
+                db = new SQL.Database(new Uint8Array(buffer));
+
+                // Get stats
+                const plurkCount = db.exec("SELECT COUNT(*) FROM plurks")[0].values[0][0];
+                const responseCount = db.exec("SELECT COUNT(*) FROM responses")[0].values[0][0];
+
+                // Check if link_metadata table exists and get count
+                let linkStats = '';
+                const linkTableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata'");
+                if (linkTableExists.length > 0 && linkTableExists[0].values.length > 0) {
+                    const linkCount = db.exec("SELECT COUNT(*) FROM link_metadata")[0].values[0][0];
+                    const linkWithOg = db.exec("SELECT COUNT(*) FROM link_metadata WHERE status = 'success'")[0].values[0][0];
+                    linkStats = `, ${linkCount.toLocaleString()} links (${linkWithOg.toLocaleString()} with OG)`;
+                }
+
+                document.getElementById('search-stats').innerHTML = `
+                    <strong>Database loaded:</strong> ${plurkCount.toLocaleString()} plurks, ${responseCount.toLocaleString()} responses${linkStats}
+                    | <strong>User:</strong> ${BackupData.user.display_name} (@${BackupData.user.nick_name})
+                `;
+                document.getElementById('stats-section').style.display = 'block';
+                document.getElementById('loading-section').style.display = 'none';
+
+                // Enable search
+                document.getElementById('search-query').disabled = false;
+                document.getElementById('search-btn').disabled = false;
+                document.getElementById('search-btn').textContent = 'Search';
+                document.getElementById('search-query').focus();
+
+            } catch (error) {
+                console.error('Failed to load database:', error);
+                document.getElementById('loading-section').style.display = 'none';
+                document.getElementById('error-section').textContent =
+                    'Failed to load database: ' + error.message;
+                document.getElementById('error-section').style.display = 'block';
+            }
+        }
+
+        // Build LIKE pattern from user input
+        function buildLikePattern(query) {
+            // Escape special LIKE characters and wrap with %
+            const escaped = query.trim()
+                .replace(/[%_]/g, '\\$&');
+            return `%${escaped}%`;
+        }
+
+        // Build FTS5 query from user input
+        function buildFtsQuery(query) {
+            // Split by whitespace and add prefix matching
+            return query.trim()
+                .split(/\s+/)
+                .filter(term => term.length > 0)
+                .map(term => {
+                    // Escape special FTS5 characters
+                    const escaped = term.replace(/["]/g, '""');
+                    return `"${escaped}"*`;
+                })
+                .join(' ');
+        }
+
+        // Handle search type change (hide search mode for links)
+        function onSearchTypeChange() {
+            const searchType = document.getElementById('search-type').value;
+            const searchModeGroup = document.getElementById('search-mode-group');
+            const searchInput = document.getElementById('search-query');
+
+            if (searchType === 'links') {
+                searchModeGroup.style.display = 'none';
+                searchInput.placeholder = 'Search link titles and descriptions...';
+            } else {
+                searchModeGroup.style.display = 'flex';
+                searchInput.placeholder = 'Search plurks and responses...';
+            }
+        }
+
+        function performSearch() {
+            const query = document.getElementById('search-query').value.trim();
+            if (!query) {
+                alert('Please enter a search term');
+                return;
+            }
+
+            currentQuery = query;
+            currentSearchType = document.getElementById('search-type').value;
+            currentPage = 0;
+
+            if (currentSearchType === 'links') {
+                executeLinksSearch();
+            } else {
+                executeSearch();
+            }
+        }
+
+        function executeSearch() {
+            if (!db) return;
+
+            const searchMode = document.getElementById('search-mode').value;
+            const offset = currentPage * RESULTS_PER_PAGE;
+
+            let results = [];
+            let totalCount = 0;
+
+            try {
+                if (searchMode === 'fts') {
+                    // FTS5 search
+                    const ftsQuery = buildFtsQuery(currentQuery);
+
+                    // Search plurks with FTS5
+                    if (currentSearchType === 'all' || currentSearchType === 'plurks') {
+                        const plurkResults = db.exec(`
+                            SELECT p.id, p.base_id, p.content_raw, p.posted, p.qualifier, p.response_count, 'plurk' as type
+                            FROM plurks p
+                            JOIN plurks_fts ON plurks_fts.rowid = p.id
+                            WHERE plurks_fts MATCH ?
+                            ORDER BY p.posted DESC
+                            LIMIT ? OFFSET ?
+                        `, [ftsQuery, RESULTS_PER_PAGE, offset]);
+
+                        if (plurkResults.length > 0) {
+                            results = results.concat(plurkResults[0].values.map(row => ({
+                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
+                                qualifier: row[4], response_count: row[5], type: row[6]
+                            })));
+                        }
+
+                        const plurkCountResult = db.exec(`
+                            SELECT COUNT(*) FROM plurks_fts WHERE plurks_fts MATCH ?
+                        `, [ftsQuery]);
+                        if (plurkCountResult.length > 0) {
+                            totalCount += plurkCountResult[0].values[0][0];
+                        }
+                    }
+
+                    // Search responses with FTS5
+                    if (currentSearchType === 'all' || currentSearchType === 'responses') {
+                        const responseResults = db.exec(`
+                            SELECT r.id, r.base_id, r.content_raw, r.posted, r.user_nick, r.user_display, 'response' as type
+                            FROM responses r
+                            JOIN responses_fts ON responses_fts.rowid = r.id
+                            WHERE responses_fts MATCH ?
+                            ORDER BY r.posted DESC
+                            LIMIT ? OFFSET ?
+                        `, [ftsQuery, RESULTS_PER_PAGE, offset]);
+
+                        if (responseResults.length > 0) {
+                            results = results.concat(responseResults[0].values.map(row => ({
+                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
+                                user_nick: row[4], user_display: row[5], type: row[6]
+                            })));
+                        }
+
+                        const responseCountResult = db.exec(`
+                            SELECT COUNT(*) FROM responses_fts WHERE responses_fts MATCH ?
+                        `, [ftsQuery]);
+                        if (responseCountResult.length > 0) {
+                            totalCount += responseCountResult[0].values[0][0];
+                        }
+                    }
+                } else {
+                    // LIKE search
+                    const likePattern = buildLikePattern(currentQuery);
+
+                    // Search plurks with LIKE
+                    if (currentSearchType === 'all' || currentSearchType === 'plurks') {
+                        const plurkResults = db.exec(`
+                            SELECT id, base_id, content_raw, posted, qualifier, response_count, 'plurk' as type
+                            FROM plurks
+                            WHERE content_raw LIKE ?
+                            ORDER BY posted DESC
+                            LIMIT ? OFFSET ?
+                        `, [likePattern, RESULTS_PER_PAGE, offset]);
+
+                        if (plurkResults.length > 0) {
+                            results = results.concat(plurkResults[0].values.map(row => ({
+                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
+                                qualifier: row[4], response_count: row[5], type: row[6]
+                            })));
+                        }
+
+                        const plurkCountResult = db.exec(`
+                            SELECT COUNT(*) FROM plurks WHERE content_raw LIKE ?
+                        `, [likePattern]);
+                        if (plurkCountResult.length > 0) {
+                            totalCount += plurkCountResult[0].values[0][0];
+                        }
+                    }
+
+                    // Search responses with LIKE
+                    if (currentSearchType === 'all' || currentSearchType === 'responses') {
+                        const responseResults = db.exec(`
+                            SELECT id, base_id, content_raw, posted, user_nick, user_display, 'response' as type
+                            FROM responses
+                            WHERE content_raw LIKE ?
+                            ORDER BY posted DESC
+                            LIMIT ? OFFSET ?
+                        `, [likePattern, RESULTS_PER_PAGE, offset]);
+
+                        if (responseResults.length > 0) {
+                            results = results.concat(responseResults[0].values.map(row => ({
+                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
+                                user_nick: row[4], user_display: row[5], type: row[6]
+                            })));
+                        }
+
+                        const responseCountResult = db.exec(`
+                            SELECT COUNT(*) FROM responses WHERE content_raw LIKE ?
+                        `, [likePattern]);
+                        if (responseCountResult.length > 0) {
+                            totalCount += responseCountResult[0].values[0][0];
+                        }
+                    }
+                }
+
+                // Sort combined results by date
+                results.sort((a, b) => new Date(b.posted) - new Date(a.posted));
+
+                displayResults(results, totalCount);
+
+            } catch (error) {
+                console.error('Search error:', error);
+                document.getElementById('error-section').textContent =
+                    'Search error: ' + error.message + '. Try simpler search terms.';
+                document.getElementById('error-section').style.display = 'block';
+            }
+        }
+
+        // Execute search for links (OG metadata)
+        function executeLinksSearch() {
+            if (!db) return;
+
+            const offset = currentPage * RESULTS_PER_PAGE;
+            const ftsQuery = buildFtsQuery(currentQuery);
+
+            try {
+                // Check if link_metadata_fts exists
+                const ftsExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata_fts'");
+                if (ftsExists.length === 0 || ftsExists[0].values.length === 0) {
+                    document.getElementById('error-section').textContent =
+                        'Link search not available. Run plurk-tools links extract first.';
+                    document.getElementById('error-section').style.display = 'block';
+                    return;
+                }
+
+                // Search links with FTS5
+                const linkResults = db.exec(`
+                    SELECT lm.url, lm.og_title, lm.og_description, lm.og_site_name, lm.sources, lm.status
+                    FROM link_metadata lm
+                    JOIN link_metadata_fts ON link_metadata_fts.rowid = lm.rowid
+                    WHERE link_metadata_fts MATCH ?
+                    ORDER BY lm.rowid DESC
+                    LIMIT ? OFFSET ?
+                `, [ftsQuery, RESULTS_PER_PAGE, offset]);
+
+                let results = [];
+                if (linkResults.length > 0) {
+                    results = linkResults[0].values.map(row => ({
+                        url: row[0],
+                        og_title: row[1],
+                        og_description: row[2],
+                        og_site_name: row[3],
+                        sources: row[4] ? JSON.parse(row[4]) : {},
+                        status: row[5],
+                        type: 'link'
+                    }));
+                }
+
+                // Get total count
+                const countResult = db.exec(`
+                    SELECT COUNT(*) FROM link_metadata_fts WHERE link_metadata_fts MATCH ?
+                `, [ftsQuery]);
+                const totalCount = countResult.length > 0 ? countResult[0].values[0][0] : 0;
+
+                displayLinkResults(results, totalCount);
+
+            } catch (error) {
+                console.error('Link search error:', error);
+                document.getElementById('error-section').textContent =
+                    'Link search error: ' + error.message + '. Try simpler search terms.';
+                document.getElementById('error-section').style.display = 'block';
+            }
+        }
+
+        // Display link search results
+        function displayLinkResults(results, totalCount) {
+            document.getElementById('error-section').style.display = 'none';
+
+            if (results.length === 0) {
+                document.getElementById('results-section').style.display = 'none';
+                document.getElementById('no-results').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('no-results').style.display = 'none';
+            document.getElementById('results-count').textContent =
+                `${totalCount.toLocaleString()} link(s) found - Page ${currentPage + 1}`;
+
+            const resultsList = document.getElementById('results-list');
+            resultsList.innerHTML = '';
+
+            results.forEach(result => {
+                const highlightedTitle = highlightSearchTerm(result.og_title || '', currentQuery);
+                const highlightedDesc = highlightSearchTerm(result.og_description || '', currentQuery);
+
+                const plurkIds = result.sources.plurk_ids || [];
+                const responseIds = result.sources.response_ids || [];
+
+                let contentHtml = '';
+                if (result.status === 'success' && (result.og_title || result.og_description)) {
+                    contentHtml = `
+                        ${result.og_title ? `<div class="link-title">${highlightedTitle}</div>` : ''}
+                        ${result.og_description ? `<div class="link-description">${highlightedDesc}</div>` : ''}
+                        ${result.og_site_name ? `<div class="link-site">${result.og_site_name}</div>` : ''}
+                    `;
+                } else if (result.status === 'pending') {
+                    contentHtml = '<div class="link-no-og">OG metadata not yet fetched</div>';
+                } else {
+                    contentHtml = '<div class="link-no-og">No OG metadata available</div>';
+                }
+
+                // Build source links
+                let sourceLinks = '';
+                if (plurkIds.length > 0 || responseIds.length > 0) {
+                    const links = [];
+                    plurkIds.forEach((id, i) => {
+                        links.push(`<a onclick="openPlurkByIdModal(${id})">plurk ${i + 1}</a>`);
+                    });
+                    responseIds.forEach((id, i) => {
+                        links.push(`<a onclick="openResponseByIdModal(${id})">response ${i + 1}</a>`);
+                    });
+                    sourceLinks = `<div class="link-sources">View in: ${links.join(' ')}</div>`;
+                }
+
+                const resultHtml = `
+                    <div class="result-item" style="cursor: default;">
+                        <div class="link-url"><a href="${result.url}" target="_blank">${result.url}</a></div>
+                        <div class="result-content">${contentHtml}</div>
+                        <div class="result-meta">
+                            <span class="result-type is-link">link</span>
+                            <span>Found in ${plurkIds.length} plurk(s), ${responseIds.length} response(s)</span>
+                            <span>Status: ${result.status}</span>
+                        </div>
+                        ${sourceLinks}
+                    </div>
+                `;
+                resultsList.innerHTML += resultHtml;
+            });
+
+            // Pagination
+            const totalPages = Math.ceil(totalCount / RESULTS_PER_PAGE);
+            const pagination = document.getElementById('pagination');
+
+            if (totalPages > 1) {
+                pagination.innerHTML = `
+                    <button onclick="goToPage(${currentPage - 1})" ${currentPage === 0 ? 'disabled' : ''}>← Previous</button>
+                    <span>Page ${currentPage + 1} of ${totalPages}</span>
+                    <button onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next →</button>
+                `;
+            } else {
+                pagination.innerHTML = '';
+            }
+
+            document.getElementById('results-section').style.display = 'block';
+        }
+
+        // Open plurk modal by plurk ID (look up base_id and posted from DB)
+        async function openPlurkByIdModal(plurkId) {
+            if (!db) return;
+
+            try {
+                const result = db.exec(`SELECT base_id, posted FROM plurks WHERE id = ?`, [plurkId]);
+                if (result.length > 0 && result[0].values.length > 0) {
+                    const [baseId, posted] = result[0].values[0];
+                    await openPlurkModal(baseId, posted);
+                } else {
+                    alert('Plurk not found in database');
+                }
+            } catch (error) {
+                console.error('Error looking up plurk:', error);
+                alert('Error looking up plurk: ' + error.message);
+            }
+        }
+
+        // Open plurk modal by response ID (look up parent plurk and highlight response)
+        async function openResponseByIdModal(responseId) {
+            if (!db) return;
+
+            try {
+                // Get the response's base_id (parent plurk) and the parent plurk's posted date
+                const result = db.exec(`
+                    SELECT r.base_id, p.posted
+                    FROM responses r
+                    JOIN plurks p ON r.base_id = p.base_id
+                    WHERE r.id = ?
+                `, [responseId]);
+
+                if (result.length > 0 && result[0].values.length > 0) {
+                    const [baseId, posted] = result[0].values[0];
+                    await openPlurkModal(baseId, posted, responseId);
+                } else {
+                    alert('Response not found in database');
+                }
+            } catch (error) {
+                console.error('Error looking up response:', error);
+                alert('Error looking up response: ' + error.message);
+            }
+        }
+
+        function displayResults(results, totalCount) {
+            document.getElementById('error-section').style.display = 'none';
+
+            if (results.length === 0) {
+                document.getElementById('results-section').style.display = 'none';
+                document.getElementById('no-results').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('no-results').style.display = 'none';
+            document.getElementById('results-count').textContent =
+                `${totalCount.toLocaleString()} result(s) found - Page ${currentPage + 1}`;
+
+            const resultsList = document.getElementById('results-list');
+            resultsList.innerHTML = '';
+
+            results.forEach(result => {
+                const highlightedContent = highlightSearchTerm(result.content_raw || '', currentQuery);
+                const date = result.posted ? new Date(result.posted).toLocaleString() : 'Unknown';
+
+                let metaInfo = `<span>Posted: ${date}</span>`;
+
+                if (result.type === 'plurk') {
+                    metaInfo += `<span>Responses: ${result.response_count || 0}</span>`;
+                    if (result.qualifier) {
+                        metaInfo += `<span>Qualifier: ${result.qualifier}</span>`;
+                    }
+                } else {
+                    if (result.user_nick) {
+                        metaInfo += `<span>By: ${result.user_display || result.user_nick} (@${result.user_nick})</span>`;
+                    }
+                }
+
+                const resultHtml = `
+                    <div class="result-item" data-baseid="${result.base_id}" data-posted="${result.posted}" onclick="openPlurkModal('${result.base_id}', '${result.posted}')">
+                        <div class="result-content">${highlightedContent}</div>
+                        <div class="result-meta">
+                            <span class="result-type ${result.type === 'response' ? 'is-response' : ''}">${result.type}</span>
+                            ${metaInfo}
+                        </div>
+                    </div>
+                `;
+                resultsList.innerHTML += resultHtml;
+            });
+
+            // Pagination
+            const totalPages = Math.ceil(totalCount / RESULTS_PER_PAGE);
+            const pagination = document.getElementById('pagination');
+
+            if (totalPages > 1) {
+                pagination.innerHTML = `
+                    <button onclick="goToPage(${currentPage - 1})" ${currentPage === 0 ? 'disabled' : ''}>← Previous</button>
+                    <span>Page ${currentPage + 1} of ${totalPages}</span>
+                    <button onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next →</button>
+                `;
+            } else {
+                pagination.innerHTML = '';
+            }
+
+            document.getElementById('results-section').style.display = 'block';
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            if (currentSearchType === 'links') {
+                executeLinksSearch();
+            } else {
+                executeSearch();
+            }
+            window.scrollTo(0, 0);
+        }
+
+        function highlightSearchTerm(content, searchTerm) {
+            if (!searchTerm || !content) return content;
+
+            // Split search terms and highlight each
+            const terms = searchTerm.split(/\s+/).filter(t => t.length > 0);
+            let result = content;
+
+            terms.forEach(term => {
+                const regex = new RegExp('(' + escapeRegExp(term) + ')', 'gi');
+                result = result.replace(regex, '<span class="result-highlight">$1</span>');
+            });
+
+            return result;
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Handle Enter key
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('search-query').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    performSearch();
+                }
+            });
+        });
+
+        // ========== Modal popup functions (adapted from backup.js) ==========
+
+        // Generate avatar URL
+        function getAvatarUrl(userId, avatarVersion, size) {
+            size = size || 'small';
+            if (userId !== null && avatarVersion >= 0) {
+                const ext = (size === 'big') ? 'jpg' : 'gif';
+                return 'https://avatars.plurk.com/' + userId + '-' + size + (avatarVersion || '') + '.' + ext;
+            }
+            return 'https://www.plurk.com/static/default_big.jpg';
+        }
+
+        // Format date
+        function formatDate(dateStr) {
+            return new Date(dateStr).toLocaleString(undefined, { hour12: false });
+        }
+
+        // Process content HTML (fix links and emoticon URLs)
+        function processContent(content) {
+            if (!content) return '';
+            content = content.replace(/<a /g, '<a target="_blank" ');
+            content = content.replace(/src="\/static\/emoticons\//g, 'src="https://www.plurk.com/static/emoticons/');
+            return content;
+        }
+
+        // Parse posted date to get year_month key
+        function getMonthKey(postedStr) {
+            const date = new Date(postedStr);
+            const year = date.getFullYear();
+            const month = date.getMonth() + 1;
+            return year + '_' + (month < 10 ? '0' : '') + month;
+        }
+
+        // Load plurk file and find plurk by base_id
+        function loadPlurkData(monthKey, baseId) {
+            return new Promise((resolve, reject) => {
+                // Check if already loaded
+                if (BackupData.plurks && BackupData.plurks[monthKey]) {
+                    const plurk = BackupData.plurks[monthKey].find(p => p.base_id === baseId);
+                    resolve(plurk);
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.onload = function() {
+                    const plurk = BackupData.plurks[monthKey].find(p => p.base_id === baseId);
+                    resolve(plurk);
+                    script.remove();
+                };
+                script.onerror = function() {
+                    reject(new Error('Failed to load plurk data'));
+                    script.remove();
+                };
+                script.src = 'data/plurks/' + monthKey + '.js';
+                document.head.appendChild(script);
+            });
+        }
+
+        // Load responses for a plurk
+        function loadResponses(baseId) {
+            return new Promise((resolve, reject) => {
+                // Check if already loaded
+                if (BackupData.responses && BackupData.responses[baseId]) {
+                    resolve(BackupData.responses[baseId]);
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.onload = function() {
+                    resolve(BackupData.responses[baseId] || []);
+                    script.remove();
+                };
+                script.onerror = function() {
+                    // No responses file means no responses
+                    resolve([]);
+                    script.remove();
+                };
+                script.src = 'data/responses/' + baseId + '.js';
+                document.head.appendChild(script);
+            });
+        }
+
+        // Render plurk HTML (same structure as backup.js)
+        function renderPlurkHtml(plurk) {
+            const user = BackupData.user;
+            const avatarUrl = getAvatarUrl(user.id, user.avatar, 'medium');
+            const nameStyle = user.name_color ? ' style="color:#' + user.name_color + '"' : '';
+
+            return '<div class="plurk clearfix" data-pid="' + plurk.id + '" data-basepid="' + plurk.base_id + '">' +
+                '<div class="avatar"><a target="_blank" href="https://www.plurk.com/' + user.nick_name + '">' +
+                '<img src="' + avatarUrl + '"></a></div>' +
+                '<div class="user"><span>' +
+                '<a target="_blank" href="https://www.plurk.com/' + user.nick_name + '" class="name"' + nameStyle + '>' + user.display_name + '</a>' +
+                (plurk.qualifier ? '<span class="qualifier q_' + plurk.qualifier + '">' + (plurk.translate_qualifier || plurk.qualifier) + '</span>' : '') +
+                (plurk.porn ? '<span class="porn-icon pif-porn"></span>' : '') +
+                '</span></div>' +
+                '<div class="content">' + processContent(plurk.content) + '</div>' +
+                '<div class="manager">' +
+                '<span class="response-count"><i class="cmp-response"></i><span>' + plurk.response_count + '</span></span>' +
+                '<a href="https://www.plurk.com/p/' + plurk.base_id + '" target="_blank" class="open-plink"><i class="cmp-outlink"></i><span></span></a>' +
+                '</div>' +
+                '<div class="info">' +
+                (plurk.private || plurk.limited_to ? '<span class="private cmp-privacy"></span>' : '') +
+                '<span class="time">' + formatDate(plurk.posted) + '</span>' +
+                '</div></div>';
+        }
+
+        // Render response HTML (optionally highlighted)
+        function renderResponseHtml(response, highlight) {
+            const user = response.user;
+            const avatarUrl = getAvatarUrl(user.id, user.avatar, 'small');
+            const nameStyle = user.name_color ? ' style="color:#' + user.name_color + '"' : '';
+            const highlightClass = highlight ? ' response-highlighted' : '';
+
+            return '<div class="plurk response clearfix' + highlightClass + '" data-rid="' + response.id + '">' +
+                '<div class="avatar"><a target="_blank" href="https://www.plurk.com/' + user.nick_name + '">' +
+                '<img src="' + avatarUrl + '"></a></div>' +
+                '<div class="user"><span>' +
+                '<a href="https://www.plurk.com/' + user.nick_name + '" class="name"' + nameStyle + '>' + user.display_name + '</a>' +
+                (response.qualifier ? '<span class="qualifier q_' + response.qualifier + '">' + (response.translate_qualifier || response.qualifier) + '</span>' : '') +
+                '</span></div>' +
+                '<div class="content">' + processContent(response.content) + '</div>' +
+                '<div class="info"><span class="time">' + formatDate(response.posted) + '</span></div>' +
+                '</div>';
+        }
+
+        // Show popup
+        function showPopup(popup) {
+            if (document.querySelectorAll('.popwindow:not([style*="display: none"])').length === 0) {
+                const scrollTop = window.scrollY;
+                document.documentElement.style.overflowY = 'scroll';
+                document.body.dataset.st = scrollTop;
+                document.body.style.top = -scrollTop + 'px';
+                document.body.style.overflow = 'visible';
+                document.body.style.position = 'fixed';
+            }
+            popup.style.display = 'block';
+        }
+
+        // Hide popup
+        function hidePopup(popup) {
+            popup.style.display = 'none';
+            if (document.querySelectorAll('.popwindow:not([style*="display: none"])').length === 0) {
+                document.documentElement.style.overflowY = '';
+                document.body.style.overflow = '';
+                document.body.style.position = '';
+                document.body.style.top = '';
+                window.scrollTo(0, parseInt(document.body.dataset.st || 0));
+            }
+        }
+
+        // Adjust responses holder height
+        function adjustResponsesHeight() {
+            const popup = document.getElementById('popplurk');
+            const holder = popup.querySelector('.popwindow-holder');
+            const plurkHolder = document.getElementById('popplurk-plurk-holder');
+            const responsesHolder = document.getElementById('popplurk-responses-holder');
+            responsesHolder.style.height = (holder.offsetHeight - plurkHolder.offsetHeight) + 'px';
+        }
+
+        // Open plurk in modal (optionally highlight a specific response)
+        async function openPlurkModal(baseId, postedStr, highlightResponseId) {
+            const plurkHolder = document.getElementById('popplurk-plurk-holder');
+            const responsesHolder = document.getElementById('popplurk-responses-holder');
+            const popup = document.getElementById('popplurk');
+
+            // Show loading state
+            plurkHolder.innerHTML = '<div class="loading" style="padding: 20px;">Loading...</div>';
+            responsesHolder.innerHTML = '';
+            showPopup(popup);
+
+            try {
+                // Load plurk data
+                const monthKey = getMonthKey(postedStr);
+                const plurk = await loadPlurkData(monthKey, baseId);
+
+                if (!plurk) {
+                    plurkHolder.innerHTML = '<div class="error-message">Plurk not found</div>';
+                    return;
+                }
+
+                // Render plurk
+                plurkHolder.innerHTML = renderPlurkHtml(plurk);
+                adjustResponsesHeight();
+
+                // Load and render responses
+                if (plurk.response_count > 0) {
+                    const responses = await loadResponses(baseId);
+                    responsesHolder.innerHTML = responses.map(r => renderResponseHtml(r, r.id === highlightResponseId)).join('');
+
+                    // Scroll to highlighted response
+                    if (highlightResponseId) {
+                        const highlighted = responsesHolder.querySelector('.response-highlighted');
+                        if (highlighted) {
+                            setTimeout(() => highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading plurk:', error);
+                plurkHolder.innerHTML = '<div class="error-message">Error loading plurk: ' + error.message + '</div>';
+            }
+        }
+
+        // Initialize popup event handlers
+        function initPopupHandlers() {
+            const popup = document.getElementById('popplurk');
+            const overlay = popup.querySelector('.popwindow-overlay');
+
+            overlay.addEventListener('click', function() {
+                hidePopup(popup);
+            });
+
+            window.addEventListener('resize', adjustResponsesHeight);
+        }
+
+        // Set backup date in top bar
+        document.getElementById('backup-info').textContent =
+            'Backup: ' + new Date(BackupData.info.backup_date).toLocaleDateString();
+
+        // Initialize on load
+        initDatabase();
+
+        document.addEventListener('DOMContentLoaded', initPopupHandlers);
+    </script>
+</body>
+</html>

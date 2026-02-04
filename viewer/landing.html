@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Plurk Backup</title>
+    <link href="static/backup.css" rel="stylesheet">
+    <style>
+        .landing-container {
+            max-width: 800px;
+            margin: 64px auto 40px;
+            padding: 0 20px;
+        }
+
+        #account {
+            margin-bottom: 24px;
+        }
+
+        .nav-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .nav-card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-decoration: none;
+            color: inherit;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: block;
+        }
+
+        .nav-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .nav-card-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+
+        .nav-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 20px;
+            color: #333;
+        }
+
+        .nav-card p {
+            margin: 0;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .nav-card.browse {
+            border-left: 4px solid #FF574D;
+        }
+
+        .nav-card.search {
+            border-left: 4px solid #E8AF37;
+        }
+    </style>
+    <script>
+        BackupData = { info: {}, user: {}, indexes: {}, plurks: {}, responses: {} };
+    </script>
+    <script src="data/info.js"></script>
+    <script src="data/user.js"></script>
+</head>
+<body>
+    <div id="top-bar" class="clearfix">
+        <div id="plurk-logo">
+            <a href="/" style="text-decoration: none;">
+                <span class="cmp-plurklogo-white"></span>
+                <span class="cmp-plurk-white"></span>
+            </a>
+        </div>
+        <div id="backup-info"></div>
+    </div>
+
+    <div class="landing-container">
+        <div id="account" class="clearfix">
+            <div id="account-avatar"></div>
+            <div id="account-info">
+                <div class="displayname"></div>
+                <div class="nickname"></div>
+                <div class="other-info"></div>
+            </div>
+        </div>
+
+        <div class="nav-cards">
+            <a href="index.html" class="nav-card browse">
+                <div class="nav-card-icon">📅</div>
+                <h3>Browse Timeline</h3>
+                <p>Navigate through your plurk history organized by year and month.</p>
+            </a>
+            <a href="search.html" class="nav-card search">
+                <div class="nav-card-icon">🔍</div>
+                <h3>Search Archive</h3>
+                <p>Full-text search across all plurks and responses.</p>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Generate avatar URL (same as backup.js)
+        function getAvatarUrl(userId, avatarVersion) {
+            if (userId !== null && avatarVersion >= 0) {
+                return 'https://avatars.plurk.com/' + userId + '-big' + (avatarVersion || '') + '.jpg';
+            }
+            return 'https://www.plurk.com/static/default_big.jpg';
+        }
+
+        // Initialize profile (matching backup.js behavior)
+        function initProfile() {
+            const user = BackupData.user;
+            const info = BackupData.info;
+
+            // Avatar
+            document.getElementById('account-avatar').style.backgroundImage =
+                'url(' + getAvatarUrl(user.id, user.avatar) + ')';
+
+            // User info
+            document.querySelector('#account-info .displayname').textContent = user.display_name;
+            document.querySelector('#account-info .nickname').textContent = '@' + user.nick_name;
+
+            // Other info
+            if (user.karma) {
+                document.querySelector('#account-info .other-info').textContent = 'Karma: ' + user.karma.toFixed(2);
+            }
+
+            // Backup info in top bar
+            document.getElementById('backup-info').textContent =
+                'Backup: ' + new Date(info.backup_date).toLocaleDateString();
+        }
+
+        initProfile();
+    </script>
+</body>
+</html>

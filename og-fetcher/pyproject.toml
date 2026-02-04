@@ -1,0 +1,23 @@
+[project]
+name = "og-fetcher"
+version = "0.1.0"
+description = "Fetch Open Graph metadata from URLs using headless browser"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: mark test as integration test (requires network, may be slow)",
+]
