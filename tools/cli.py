@@ -4,6 +4,7 @@
 Usage:
     plurk-tools init <backup_path> [--viewer <viewer_path>]
     plurk-tools serve <viewer_path> [--port 8000]
+    plurk-tools patch <viewer_path>
     plurk-tools links extract <viewer_path> --month YYYYMM
     plurk-tools links fetch <viewer_path> [--limit 50]
     plurk-tools links status <viewer_path>
@@ -74,6 +75,18 @@ Examples:
         type=int,
         default=8000,
         help="Port number (default: 8000)",
+    )
+
+    # ========== patch command ==========
+    patch_parser = subparsers.add_parser(
+        "patch",
+        help="Add link to enhanced viewer in backup's index.html",
+        description="Patch the original Plurk backup's index.html to add a link to the enhanced landing page",
+    )
+    patch_parser.add_argument(
+        "viewer_path",
+        type=Path,
+        help="Path to viewer directory",
     )
 
     # ========== links command ==========
@@ -158,6 +171,11 @@ Examples:
         from serve_cmd import cmd_serve
 
         return cmd_serve(args.viewer_path, args.port)
+
+    elif args.command == "patch":
+        from patch_cmd import cmd_patch
+
+        return cmd_patch(args)
 
     elif args.command == "links":
         from links_cmd import cmd_links

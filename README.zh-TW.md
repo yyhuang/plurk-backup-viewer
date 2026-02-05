@@ -35,7 +35,10 @@ uv run plurk-tools init ../username-backup
 # 輸出：Created viewer at ~/my-plurk/username-viewer/
 #       Database: X plurks, Y responses
 
-# 4. 啟動伺服器
+# 4.（選用）在原始 index.html 加入增強版瀏覽器連結
+uv run plurk-tools patch ../username-viewer
+
+# 5. 啟動伺服器
 uv run plurk-tools serve ../username-viewer
 # 開啟 http://localhost:8000
 ```
@@ -84,6 +87,14 @@ uv run plurk-tools serve <viewer_path> [--port 8000]
 
 啟動本地伺服器，同時提供增強版瀏覽器與你的備份資料。
 
+### 修補原始瀏覽器（選用）
+
+```bash
+uv run plurk-tools patch <viewer_path>
+```
+
+在原始 Plurk 備份的 `index.html` 加入「Enhanced Viewer」連結，方便在原始與增強版瀏覽器之間切換。每次解壓縮新備份後都需要重新執行。
+
 ### 連結元資料（選用）
 
 從噗文中擷取網址並取得 Open Graph 元資料，以便搜尋連結：
@@ -105,18 +116,22 @@ uv run plurk-tools links status <viewer_path>
 
 1. 解壓縮新備份（可以覆蓋舊的）
 2. 再次執行 `plurk-tools init` - 會增量匯入新噗文
+3. 再次執行 `plurk-tools patch` - 新解壓縮會覆蓋 `index.html`
 
 ```bash
 # 重新執行 init 以匯入新資料
 uv run plurk-tools init ../username-backup
 # 輸出：Added X new plurks, Y new responses
+
+# 重新執行 patch（新解壓縮會覆蓋 index.html）
+uv run plurk-tools patch ../username-viewer
 ```
 
 ## 運作原理
 
 - **資料庫**：SQLite 搭配 FTS5 全文搜尋索引
 - **雙目錄路由**：伺服器結合瀏覽器檔案與你的備份資料
-- **不修改原檔**：你的原始備份檔案永遠不會被修改
+- **最小修改**：只有 `patch` 指令會修改 `index.html`，其他備份檔案不會被修改
 
 ## 授權條款
 

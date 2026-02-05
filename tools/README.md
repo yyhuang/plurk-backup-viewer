@@ -79,6 +79,22 @@ uv run plurk-tools serve ../username-viewer --port 3000
 | `/landing.html`, `/search.html`, `/plurks.db` | viewer directory |
 | `/static/sql-wasm.*` | viewer directory |
 
+### plurk-tools patch
+
+Add a link to the enhanced viewer in the backup's original `index.html`.
+
+```bash
+uv run plurk-tools patch <viewer_path>
+
+# Example
+uv run plurk-tools patch ../username-viewer
+```
+
+**What it does:**
+- Adds an "Enhanced Viewer" button to the original Plurk backup's `index.html`
+- Safe to run multiple times (detects if already patched)
+- Re-run after extracting a new backup (extraction overwrites `index.html`)
+
 ### plurk-tools links
 
 Manage link metadata: extract URLs and fetch Open Graph metadata.

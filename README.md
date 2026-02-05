@@ -35,7 +35,10 @@ uv run plurk-tools init ../username-backup
 # Output: Created viewer at ~/my-plurk/username-viewer/
 #         Database: X plurks, Y responses
 
-# 4. Start the server
+# 4. (Optional) Add link to enhanced viewer in original index.html
+uv run plurk-tools patch ../username-viewer
+
+# 5. Start the server
 uv run plurk-tools serve ../username-viewer
 # Open http://localhost:8000
 ```
@@ -84,6 +87,14 @@ uv run plurk-tools serve <viewer_path> [--port 8000]
 
 Starts a local server that serves both the enhanced viewer and your backup data.
 
+### Patch Original Viewer (Optional)
+
+```bash
+uv run plurk-tools patch <viewer_path>
+```
+
+Adds an "Enhanced Viewer" link to the original Plurk backup's `index.html`. This makes it easy to switch between the original and enhanced viewers. Run this after each new backup extraction.
+
 ### Link Metadata (Optional)
 
 Extract URLs from your plurks and fetch Open Graph metadata for link search:
@@ -105,18 +116,22 @@ When you export a new backup from Plurk:
 
 1. Extract the new backup (can overwrite the old one)
 2. Run `plurk-tools init` again - it will incrementally add new plurks
+3. Run `plurk-tools patch` again - the new extraction overwrites `index.html`
 
 ```bash
 # Re-run init to import new data
 uv run plurk-tools init ../username-backup
 # Output: Added X new plurks, Y new responses
+
+# Re-run patch (new extraction overwrites index.html)
+uv run plurk-tools patch ../username-viewer
 ```
 
 ## How It Works
 
 - **Database**: SQLite with FTS5 full-text search index
 - **Dual-directory routing**: Server combines viewer files with your backup data
-- **No modifications**: Your original backup files are never modified
+- **Minimal modifications**: Only `patch` command modifies `index.html`, other backup files are untouched
 
 ## License
 
