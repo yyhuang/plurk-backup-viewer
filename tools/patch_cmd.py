@@ -2,7 +2,7 @@
 Patch command - modify backup's index.html to add link to enhanced viewer.
 
 Usage:
-    plurk-tools patch <viewer_path>
+    plurk-tools patch
 
 This patches the original Plurk backup's index.html to add a link to the
 enhanced landing page. Run this after extracting a new backup zip.
@@ -12,6 +12,11 @@ import json
 import re
 import sys
 from pathlib import Path
+
+
+# Paths relative to this file
+TOOL_ROOT = Path(__file__).parent.parent
+VIEWER_DIR = TOOL_ROOT / "viewer"
 
 
 def patch_index_html(backup_path: Path) -> bool:
@@ -58,15 +63,13 @@ def patch_index_html(backup_path: Path) -> bool:
     return True
 
 
-def cmd_patch(args) -> int:
+def cmd_patch() -> int:
     """Run the patch command."""
-    viewer_path = Path(args.viewer_path).resolve()
-
     # Load config to find backup path
-    config_file = viewer_path / "config.json"
+    config_file = VIEWER_DIR / "config.json"
     if not config_file.exists():
         print(f"Error: {config_file} not found", file=sys.stderr)
-        print("Run 'plurk-tools init' first to create the viewer", file=sys.stderr)
+        print("Run 'plurk-tools init <backup_path>' first", file=sys.stderr)
         return 1
 
     config = json.loads(config_file.read_text())
@@ -80,20 +83,6 @@ def cmd_patch(args) -> int:
 
     if patch_index_html(backup_path):
         print("\nDone! The original viewer now has a link to the enhanced viewer.")
-        print("Start the server with: plurk-tools serve", viewer_path)
+        print("Start the server with: plurk-tools serve")
 
     return 0
-
-
-def setup_parser(subparsers):
-    """Set up the argument parser for the patch command."""
-    parser = subparsers.add_parser(
-        "patch",
-        help="Add link to enhanced viewer in backup's index.html",
-        description=__doc__,
-    )
-    parser.add_argument(
-        "viewer_path",
-        help="Path to viewer directory (e.g., username-viewer)",
-    )
-    parser.set_defaults(func=cmd_patch)

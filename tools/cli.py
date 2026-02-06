@@ -2,12 +2,12 @@
 """Plurk Backup Tools - Unified CLI.
 
 Usage:
-    plurk-tools init <backup_path> [--viewer <viewer_path>]
-    plurk-tools serve <viewer_path> [--port 8000]
-    plurk-tools patch <viewer_path>
-    plurk-tools links extract <viewer_path> --month YYYYMM
-    plurk-tools links fetch <viewer_path> [--limit 50]
-    plurk-tools links status <viewer_path>
+    plurk-tools init <backup_path>
+    plurk-tools serve [--port 8000]
+    plurk-tools patch
+    plurk-tools links extract --month YYYYMM
+    plurk-tools links fetch [--limit 50]
+    plurk-tools links status
 """
 
 import argparse
@@ -22,20 +22,20 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Initialize viewer from backup
+  # Initialize from backup (creates database in viewer/)
   plurk-tools init ../username-backup
 
   # Serve viewer (starts development server)
-  plurk-tools serve ../username-viewer
+  plurk-tools serve
 
   # Extract links from October 2018
-  plurk-tools links extract ../username-viewer --month 201810
+  plurk-tools links extract --month 201810
 
   # Fetch OG metadata for pending links
-  plurk-tools links fetch ../username-viewer --limit 100
+  plurk-tools links fetch --limit 100
 
   # Check link database status
-  plurk-tools links status ../username-viewer
+  plurk-tools links status
 """,
     )
 
@@ -44,19 +44,13 @@ Examples:
     # ========== init command ==========
     init_parser = subparsers.add_parser(
         "init",
-        help="Initialize viewer from Plurk backup",
-        description="Copy viewer templates and create database from backup",
+        help="Initialize database from Plurk backup",
+        description="Create database from backup data",
     )
     init_parser.add_argument(
         "backup_path",
         type=Path,
-        help="Path to backup directory (e.g., username-backup)",
-    )
-    init_parser.add_argument(
-        "--viewer",
-        type=Path,
-        dest="viewer_path",
-        help="Path for viewer directory (default: <backup>-viewer or <backup>/../<name>-viewer)",
+        help="Path to backup directory (e.g., ../username-backup)",
     )
 
     # ========== serve command ==========
@@ -66,11 +60,6 @@ Examples:
         description="Serve viewer with no-cache headers for development",
     )
     serve_parser.add_argument(
-        "viewer_path",
-        type=Path,
-        help="Path to viewer directory",
-    )
-    serve_parser.add_argument(
         "--port",
         type=int,
         default=8000,
@@ -78,15 +67,10 @@ Examples:
     )
 
     # ========== patch command ==========
-    patch_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "patch",
         help="Add link to enhanced viewer in backup's index.html",
         description="Patch the original Plurk backup's index.html to add a link to the enhanced landing page",
-    )
-    patch_parser.add_argument(
-        "viewer_path",
-        type=Path,
-        help="Path to viewer directory",
     )
 
     # ========== links command ==========
@@ -101,11 +85,6 @@ Examples:
     links_extract_parser = links_subparsers.add_parser(
         "extract",
         help="Extract URLs from backup files",
-    )
-    links_extract_parser.add_argument(
-        "viewer_path",
-        type=Path,
-        help="Path to viewer directory",
     )
     links_extract_parser.add_argument(
         "--month",
@@ -123,11 +102,6 @@ Examples:
     links_fetch_parser = links_subparsers.add_parser(
         "fetch",
         help="Fetch OG metadata for pending URLs",
-    )
-    links_fetch_parser.add_argument(
-        "viewer_path",
-        type=Path,
-        help="Path to viewer directory",
     )
     links_fetch_parser.add_argument(
         "--limit",
@@ -149,14 +123,9 @@ Examples:
     )
 
     # links status
-    links_status_parser = links_subparsers.add_parser(
+    links_subparsers.add_parser(
         "status",
         help="Show link database status",
-    )
-    links_status_parser.add_argument(
-        "viewer_path",
-        type=Path,
-        help="Path to viewer directory",
     )
 
     args = parser.parse_args()
@@ -165,17 +134,17 @@ Examples:
     if args.command == "init":
         from init_cmd import cmd_init
 
-        return cmd_init(args.backup_path, args.viewer_path)
+        return cmd_init(args.backup_path)
 
     elif args.command == "serve":
         from serve_cmd import cmd_serve
 
-        return cmd_serve(args.viewer_path, args.port)
+        return cmd_serve(args.port)
 
     elif args.command == "patch":
         from patch_cmd import cmd_patch
 
-        return cmd_patch(args)
+        return cmd_patch()
 
     elif args.command == "links":
         from links_cmd import cmd_links

@@ -1,13 +1,13 @@
-"""Init command - initialize viewer from Plurk backup.
+"""Init command - initialize database from Plurk backup.
 
 This command:
-1. Creates a viewer directory with HTML templates and static files
-2. Creates config.json pointing to the backup directory
-3. Builds the SQLite database from backup data
+1. Creates config.json pointing to the backup directory
+2. Builds the SQLite database from backup data
+
+Database and config are stored in the viewer/ directory.
 """
 
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -21,54 +21,17 @@ from utils import (
 )
 
 
-# Path to viewer templates (relative to this file)
+# Paths relative to this file
 TOOL_ROOT = Path(__file__).parent.parent
-VIEWER_TEMPLATE_DIR = TOOL_ROOT / "viewer"
+VIEWER_DIR = TOOL_ROOT / "viewer"
 
 
-def get_default_viewer_path(backup_path: Path) -> Path:
-    """Calculate default viewer path from backup path.
-
-    Examples:
-        username-backup -> username-viewer (sibling)
-        my-backup -> my-viewer (sibling)
-        backup -> backup-viewer (sibling with suffix)
-    """
-    name = backup_path.name
-    if name.endswith("-backup"):
-        viewer_name = name[:-7] + "-viewer"  # Remove "-backup", add "-viewer"
-    else:
-        viewer_name = name + "-viewer"
-    return backup_path.parent / viewer_name
-
-
-def copy_viewer_templates(viewer_path: Path) -> None:
-    """Copy viewer templates to viewer directory."""
-    if not VIEWER_TEMPLATE_DIR.exists():
-        raise FileNotFoundError(f"Viewer templates not found at {VIEWER_TEMPLATE_DIR}")
-
-    # Create viewer directory
-    viewer_path.mkdir(parents=True, exist_ok=True)
-
-    # Copy HTML files
-    for html_file in VIEWER_TEMPLATE_DIR.glob("*.html"):
-        shutil.copy2(html_file, viewer_path / html_file.name)
-
-    # Copy static directory
-    static_src = VIEWER_TEMPLATE_DIR / "static"
-    static_dst = viewer_path / "static"
-    if static_src.exists():
-        if static_dst.exists():
-            shutil.rmtree(static_dst)
-        shutil.copytree(static_src, static_dst)
-
-
-def create_config(viewer_path: Path, backup_path: Path) -> None:
+def create_config(backup_path: Path) -> None:
     """Create config.json in viewer directory."""
     config = {
         "backup_path": str(backup_path.resolve()),
     }
-    config_path = viewer_path / "config.json"
+    config_path = VIEWER_DIR / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
 
 
@@ -129,12 +92,11 @@ def build_database(backup_path: Path, db_path: Path) -> tuple[int, int]:
     return plurk_count, response_count
 
 
-def cmd_init(backup_path: Path, viewer_path: Path | None = None) -> int:
-    """Initialize viewer from Plurk backup.
+def cmd_init(backup_path: Path) -> int:
+    """Initialize database from Plurk backup.
 
     Args:
         backup_path: Path to backup directory
-        viewer_path: Optional path for viewer directory (default: auto-calculated)
 
     Returns:
         Exit code (0 for success)
@@ -148,39 +110,24 @@ def cmd_init(backup_path: Path, viewer_path: Path | None = None) -> int:
         print("Required: data/plurks/, data/responses/, data/indexes.js", file=sys.stderr)
         return 1
 
-    # Calculate viewer path if not provided
-    if viewer_path is None:
-        viewer_path = get_default_viewer_path(backup_path)
-    else:
-        viewer_path = viewer_path.resolve()
-
     print(f"Backup: {backup_path}")
-    print(f"Viewer: {viewer_path}")
+    print(f"Viewer: {VIEWER_DIR}")
     print()
 
-    # Step 1: Copy viewer templates
-    print("Copying viewer templates...")
-    try:
-        copy_viewer_templates(viewer_path)
-    except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    # Step 2: Create config.json
+    # Step 1: Create config.json
     print("Creating config.json...")
-    create_config(viewer_path, backup_path)
+    create_config(backup_path)
 
-    # Step 3: Build database
+    # Step 2: Build database
     print("Building database...")
-    db_path = viewer_path / "plurks.db"
+    db_path = VIEWER_DIR / "plurks.db"
     plurk_count, response_count = build_database(backup_path, db_path)
 
     print()
-    print(f"Done! Viewer created at {viewer_path}")
-    print(f"Database: {plurk_count:,} plurks, {response_count:,} responses")
+    print(f"Done! Database: {plurk_count:,} plurks, {response_count:,} responses")
     print()
     print("To start the server:")
     print(f"  cd {TOOL_ROOT / 'tools'}")
-    print(f"  uv run plurk-tools serve {viewer_path}")
+    print("  uv run plurk-tools serve")
 
     return 0

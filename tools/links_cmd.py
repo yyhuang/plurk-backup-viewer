@@ -1,17 +1,11 @@
 """Link metadata commands: extract URLs from backup and fetch OG metadata.
 
 Usage via unified CLI:
-    plurk-tools links extract ../username-viewer --month 201810
-    plurk-tools links fetch ../username-viewer --limit 100
-    plurk-tools links status ../username-viewer
-
-Standalone usage (deprecated, for backwards compatibility):
-    python links_cmd.py extract ../username-backup --month 201810
-    python links_cmd.py fetch-previews ../username-backup --limit 100
-    python links_cmd.py status ../username-backup
+    plurk-tools links extract --month 201810
+    plurk-tools links fetch --limit 100
+    plurk-tools links status
 """
 
-import argparse
 import json
 import re
 import sqlite3
@@ -30,28 +24,29 @@ from utils import (
 )
 
 
-# ============== Config Helpers ==============
+# Paths relative to this file
+TOOL_ROOT = Path(__file__).parent.parent
+VIEWER_DIR = TOOL_ROOT / "viewer"
 
 
-def load_viewer_config(viewer_path: Path) -> dict:
+def load_config() -> dict:
     """Load config.json from viewer directory."""
-    config_path = viewer_path / "config.json"
+    config_path = VIEWER_DIR / "config.json"
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     return json.loads(config_path.read_text())
 
 
-def resolve_paths_from_viewer(viewer_path: Path) -> tuple[Path, Path, Path]:
-    """Resolve backup_path and database path from viewer directory.
+def resolve_paths() -> tuple[Path, Path]:
+    """Resolve backup_path and database path from viewer config.
 
     Returns:
-        Tuple of (backup_path, database_path, viewer_path)
+        Tuple of (backup_path, database_path)
     """
-    viewer_path = viewer_path.resolve()
-    config = load_viewer_config(viewer_path)
+    config = load_config()
     backup_path = Path(config["backup_path"])
-    database = viewer_path / "plurks.db"
-    return backup_path, database, viewer_path
+    database = VIEWER_DIR / "plurks.db"
+    return backup_path, database
 
 # URL regex pattern - matches http:// and https:// URLs
 # Stops at whitespace, Chinese characters, or common delimiters
@@ -134,29 +129,35 @@ class OGFetcher:
                 if is_image_content_type(content_type):
                     return OGResult(url=url, status="image")
 
-            og_data = page.evaluate(
+            page_data = page.evaluate(
                 """() => {
                 const tags = document.querySelectorAll('meta[property^="og:"]');
-                const result = {};
+                const og = {};
                 tags.forEach(tag => {
                     const property = tag.getAttribute('property');
                     const content = tag.getAttribute('content');
                     if (property && content) {
                         const key = property.replace('og:', '');
-                        result[key] = content;
+                        og[key] = content;
                     }
                 });
-                return result;
+                return { og: og, title: document.title || '' };
             }"""
             )
 
-            if not og_data:
+            og_data = page_data.get("og", {}) if page_data else {}
+            page_title = (page_data.get("title") or "").strip() if page_data else ""
+
+            if not og_data and not page_title:
                 return OGResult(url=url, status="no_og")
+
+            # Use <title> as fallback when og:title is missing
+            title = og_data.get("title") or page_title or None
 
             return OGResult(
                 url=url,
                 status="success",
-                title=og_data.get("title"),
+                title=title,
                 description=og_data.get("description"),
                 site_name=og_data.get("site_name"),
             )
@@ -560,13 +561,13 @@ def cmd_status(args) -> int:
 def cmd_links(args) -> int:
     """Entry point for 'plurk-tools links' subcommands.
 
-    Called from cli.py with parsed args containing viewer_path.
+    Called from cli.py with parsed args.
     """
     try:
-        backup_path, database, viewer_path = resolve_paths_from_viewer(args.viewer_path)
+        backup_path, database = resolve_paths()
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
-        print("Run 'plurk-tools init' first to create the viewer.", file=sys.stderr)
+        print("Run 'plurk-tools init <backup_path>' first.", file=sys.stderr)
         return 1
 
     if not validate_backup_dir(backup_path):
@@ -605,79 +606,3 @@ def cmd_links(args) -> int:
     return 1
 
 
-# ============== Standalone CLI (deprecated) ==============
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Build link metadata database: extract URLs and fetch OG metadata.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Extract URLs from October 2018
-  %(prog)s extract ../username-backup --month 201810
-
-  # Extract and immediately fetch OG metadata
-  %(prog)s extract ../username-backup --month 201810 --fetch-previews
-
-  # Fetch OG for pending URLs (limit 50)
-  %(prog)s fetch-previews ../username-backup --limit 50
-
-  # Check database status
-  %(prog)s status ../username-backup
-""",
-    )
-
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    # Extract command
-    extract_parser = subparsers.add_parser("extract", help="Extract URLs from backup files")
-    extract_parser.add_argument(
-        "backup_path", type=Path, help="Path to backup directory"
-    )
-    extract_parser.add_argument(
-        "--month", type=str, required=True, help="Month to process (YYYYMM format)"
-    )
-    extract_parser.add_argument(
-        "--db", type=Path, help="Path to SQLite database (default: <backup>/data/plurks.db)"
-    )
-    extract_parser.add_argument(
-        "--fetch-previews", action="store_true", help="Also fetch OG metadata for extracted URLs"
-    )
-    extract_parser.set_defaults(func=cmd_extract)
-
-    # Fetch-previews command
-    fetch_parser = subparsers.add_parser("fetch-previews", help="Fetch OG metadata for pending URLs")
-    fetch_parser.add_argument(
-        "backup_path", type=Path, help="Path to backup directory"
-    )
-    fetch_parser.add_argument(
-        "--db", type=Path, help="Path to SQLite database (default: <backup>/data/plurks.db)"
-    )
-    fetch_parser.add_argument(
-        "--limit", type=int, default=50, help="Max URLs to fetch (default: 50, 0=all)"
-    )
-    fetch_parser.add_argument(
-        "--timeout", type=int, default=10000, help="Page load timeout in ms (default: 10000)"
-    )
-    fetch_parser.add_argument(
-        "--retries", type=int, default=3, help="Number of retries (default: 3)"
-    )
-    fetch_parser.set_defaults(func=cmd_fetch_previews)
-
-    # Status command
-    status_parser = subparsers.add_parser("status", help="Show database status")
-    status_parser.add_argument(
-        "backup_path", type=Path, help="Path to backup directory"
-    )
-    status_parser.add_argument(
-        "--db", type=Path, help="Path to SQLite database (default: <backup>/data/plurks.db)"
-    )
-    status_parser.set_defaults(func=cmd_status)
-
-    args = parser.parse_args()
-    return args.func(args)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

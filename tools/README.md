@@ -19,11 +19,11 @@ uv sync
 ## Quick Start
 
 ```bash
-# 1. Initialize viewer from backup (creates username-viewer/ directory)
+# 1. Initialize database from backup
 uv run plurk-tools init ../username-backup
 
 # 2. Start development server
-uv run plurk-tools serve ../username-viewer
+uv run plurk-tools serve
 
 # 3. Open in browser
 open http://localhost:8000/
@@ -33,23 +33,18 @@ open http://localhost:8000/
 
 ### plurk-tools init
 
-Initialize a viewer from a Plurk backup. Creates a viewer directory with HTML templates and builds the SQLite database.
+Initialize database from a Plurk backup. Creates `plurks.db` and `config.json` in the `viewer/` directory.
 
 ```bash
-uv run plurk-tools init <backup_path> [--viewer <viewer_path>]
+uv run plurk-tools init <backup_path>
 
-# Example (creates ../username-viewer/)
+# Example
 uv run plurk-tools init ../username-backup
-
-# Custom viewer path
-uv run plurk-tools init ../username-backup --viewer /path/to/viewer
 ```
 
 **What it does:**
-1. Creates viewer directory with HTML templates (landing.html, search.html)
-2. Copies sql-wasm.* files for browser SQLite
-3. Creates config.json pointing to backup directory
-4. Builds plurks.db database from backup data
+1. Creates `config.json` pointing to backup directory
+2. Builds `plurks.db` database from backup data
 
 **Re-running for incremental import:**
 ```bash
@@ -63,11 +58,11 @@ uv run plurk-tools init ../username-backup
 Development HTTP server with dual-directory routing and cache disabled.
 
 ```bash
-uv run plurk-tools serve <viewer_path> [--port PORT]
+uv run plurk-tools serve [--port PORT]
 
 # Example
-uv run plurk-tools serve ../username-viewer
-uv run plurk-tools serve ../username-viewer --port 3000
+uv run plurk-tools serve
+uv run plurk-tools serve --port 3000
 ```
 
 **Routing:**
@@ -84,10 +79,7 @@ uv run plurk-tools serve ../username-viewer --port 3000
 Add a link to the enhanced viewer in the backup's original `index.html`.
 
 ```bash
-uv run plurk-tools patch <viewer_path>
-
-# Example
-uv run plurk-tools patch ../username-viewer
+uv run plurk-tools patch
 ```
 
 **What it does:**
@@ -101,13 +93,13 @@ Manage link metadata: extract URLs and fetch Open Graph metadata.
 
 ```bash
 # Extract URLs from a specific month
-uv run plurk-tools links extract ../username-viewer --month 201810
+uv run plurk-tools links extract --month 201810
 
 # Fetch OG metadata for pending URLs
-uv run plurk-tools links fetch ../username-viewer --limit 50
+uv run plurk-tools links fetch --limit 50
 
 # Check database status
-uv run plurk-tools links status ../username-viewer
+uv run plurk-tools links status
 ```
 
 **Subcommands:**
@@ -122,9 +114,9 @@ uv run plurk-tools links status ../username-viewer
 
 | Subcommand | Required Args | Optional Args |
 |------------|---------------|---------------|
-| `extract` | `viewer_path`, `--month` | `--fetch-previews` |
-| `fetch` | `viewer_path` | `--limit`, `--timeout`, `--retries` |
-| `status` | `viewer_path` | |
+| `extract` | `--month` | `--fetch-previews` |
+| `fetch` | | `--limit`, `--timeout`, `--retries` |
+| `status` | | |
 
 **Fetch options:**
 - `--limit N` - Max URLs to fetch (default: 50, 0=all)
@@ -136,21 +128,22 @@ uv run plurk-tools links status ../username-viewer
 After running `plurk-tools init`:
 
 ```
-~/my-plurk/
-├── username-backup/           # Original Plurk export (untouched)
-│   ├── index.html          # Original backup viewer
-│   ├── static/backup.*, jquery, icons
-│   └── data/
-│       ├── info.js, user.js, indexes.js
-│       ├── plurks/         # Monthly plurk files
-│       └── responses/      # Response files
-│
-└── username-viewer/           # Created by plurk-tools init
-    ├── landing.html        # Landing page
-    ├── search.html         # Search interface
-    ├── static/sql-wasm.*   # Browser SQLite
-    ├── plurks.db           # Generated database
-    └── config.json         # Points to backup directory
+plurk-backup-viewer/           # This repo
+├── viewer/                 # HTML templates + user data
+│   ├── landing.html        # Landing page
+│   ├── search.html         # Search interface
+│   ├── static/sql-wasm.*   # Browser SQLite
+│   ├── plurks.db           # Generated database (gitignored)
+│   └── config.json         # Points to backup (gitignored)
+└── tools/                  # CLI tools
+
+username-backup/               # Your Plurk export (untouched)
+├── index.html              # Original backup viewer
+├── static/backup.*, jquery, icons
+└── data/
+    ├── info.js, user.js, indexes.js
+    ├── plurks/             # Monthly plurk files
+    └── responses/          # Response files
 ```
 
 ## Running Tests

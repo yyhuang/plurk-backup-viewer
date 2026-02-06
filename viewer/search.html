@@ -400,31 +400,43 @@
             return `%${escaped}%`;
         }
 
+        // Check if a string contains CJK characters
+        function containsCJK(str) {
+            // CJK Unified Ideographs, Hiragana, Katakana, Hangul
+            return /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(str);
+        }
+
         // Build FTS5 query from user input
         function buildFtsQuery(query) {
-            // Split by whitespace and add prefix matching
+            // Split by whitespace and add prefix matching (except for CJK)
             return query.trim()
                 .split(/\s+/)
                 .filter(term => term.length > 0)
                 .map(term => {
                     // Escape special FTS5 characters
                     const escaped = term.replace(/["]/g, '""');
+                    // Don't add * suffix for CJK - unicode61 tokenizes each character separately
+                    // so prefix matching doesn't work as expected for CJK phrases
+                    if (containsCJK(term)) {
+                        return `"${escaped}"`;
+                    }
                     return `"${escaped}"*`;
                 })
                 .join(' ');
         }
 
-        // Handle search type change (hide search mode for links)
+        // Handle search type change (update placeholder text)
         function onSearchTypeChange() {
             const searchType = document.getElementById('search-type').value;
-            const searchModeGroup = document.getElementById('search-mode-group');
             const searchInput = document.getElementById('search-query');
+            const searchModeGroup = document.getElementById('search-mode-group');
+
+            // Always show search mode dropdown (LIKE fallback now available for links too)
+            searchModeGroup.style.display = 'flex';
 
             if (searchType === 'links') {
-                searchModeGroup.style.display = 'none';
-                searchInput.placeholder = 'Search link titles and descriptions...';
+                searchInput.placeholder = 'Search link URLs, titles, and descriptions...';
             } else {
-                searchModeGroup.style.display = 'flex';
                 searchInput.placeholder = 'Search plurks and responses...';
             }
         }
@@ -584,28 +596,70 @@
         function executeLinksSearch() {
             if (!db) return;
 
+            const searchMode = document.getElementById('search-mode').value;
             const offset = currentPage * RESULTS_PER_PAGE;
-            const ftsQuery = buildFtsQuery(currentQuery);
 
             try {
-                // Check if link_metadata_fts exists
-                const ftsExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata_fts'");
-                if (ftsExists.length === 0 || ftsExists[0].values.length === 0) {
+                // Check if link_metadata table exists
+                const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata'");
+                if (tableExists.length === 0 || tableExists[0].values.length === 0) {
                     document.getElementById('error-section').textContent =
                         'Link search not available. Run plurk-tools links extract first.';
                     document.getElementById('error-section').style.display = 'block';
                     return;
                 }
 
-                // Search links with FTS5
-                const linkResults = db.exec(`
-                    SELECT lm.url, lm.og_title, lm.og_description, lm.og_site_name, lm.sources, lm.status
-                    FROM link_metadata lm
-                    JOIN link_metadata_fts ON link_metadata_fts.rowid = lm.rowid
-                    WHERE link_metadata_fts MATCH ?
-                    ORDER BY lm.rowid DESC
-                    LIMIT ? OFFSET ?
-                `, [ftsQuery, RESULTS_PER_PAGE, offset]);
+                let linkResults, countResult;
+
+                if (searchMode === 'fts') {
+                    // Check if FTS table exists
+                    const ftsExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata_fts'");
+                    if (ftsExists.length === 0 || ftsExists[0].values.length === 0) {
+                        document.getElementById('error-section').textContent =
+                            'FTS index not available. Try LIKE mode or run plurk-tools links extract.';
+                        document.getElementById('error-section').style.display = 'block';
+                        return;
+                    }
+
+                    const ftsQuery = buildFtsQuery(currentQuery);
+
+                    // Search links with FTS5
+                    linkResults = db.exec(`
+                        SELECT lm.url, lm.og_title, lm.og_description, lm.og_site_name, lm.sources, lm.status
+                        FROM link_metadata lm
+                        JOIN link_metadata_fts ON link_metadata_fts.rowid = lm.rowid
+                        WHERE link_metadata_fts MATCH ?
+                        ORDER BY lm.rowid DESC
+                        LIMIT ? OFFSET ?
+                    `, [ftsQuery, RESULTS_PER_PAGE, offset]);
+
+                    // Get total count
+                    countResult = db.exec(`
+                        SELECT COUNT(*) FROM link_metadata_fts WHERE link_metadata_fts MATCH ?
+                    `, [ftsQuery]);
+                } else {
+                    // LIKE search - searches URL, title, description, and site name
+                    const likePattern = buildLikePattern(currentQuery);
+
+                    linkResults = db.exec(`
+                        SELECT url, og_title, og_description, og_site_name, sources, status
+                        FROM link_metadata
+                        WHERE url LIKE ?
+                           OR og_title LIKE ?
+                           OR og_description LIKE ?
+                           OR og_site_name LIKE ?
+                        ORDER BY rowid DESC
+                        LIMIT ? OFFSET ?
+                    `, [likePattern, likePattern, likePattern, likePattern, RESULTS_PER_PAGE, offset]);
+
+                    countResult = db.exec(`
+                        SELECT COUNT(*) FROM link_metadata
+                        WHERE url LIKE ?
+                           OR og_title LIKE ?
+                           OR og_description LIKE ?
+                           OR og_site_name LIKE ?
+                    `, [likePattern, likePattern, likePattern, likePattern]);
+                }
 
                 let results = [];
                 if (linkResults.length > 0) {
@@ -620,18 +674,13 @@
                     }));
                 }
 
-                // Get total count
-                const countResult = db.exec(`
-                    SELECT COUNT(*) FROM link_metadata_fts WHERE link_metadata_fts MATCH ?
-                `, [ftsQuery]);
                 const totalCount = countResult.length > 0 ? countResult[0].values[0][0] : 0;
-
                 displayLinkResults(results, totalCount);
 
             } catch (error) {
                 console.error('Link search error:', error);
                 document.getElementById('error-section').textContent =
-                    'Link search error: ' + error.message + '. Try simpler search terms.';
+                    'Link search error: ' + error.message + '. Try LIKE mode or simpler search terms.';
                 document.getElementById('error-section').style.display = 'block';
             }
         }
@@ -654,8 +703,10 @@
             resultsList.innerHTML = '';
 
             results.forEach(result => {
+                const highlightedUrl = highlightSearchTerm(result.url || '', currentQuery);
                 const highlightedTitle = highlightSearchTerm(result.og_title || '', currentQuery);
                 const highlightedDesc = highlightSearchTerm(result.og_description || '', currentQuery);
+                const highlightedSite = highlightSearchTerm(result.og_site_name || '', currentQuery);
 
                 const plurkIds = result.sources.plurk_ids || [];
                 const responseIds = result.sources.response_ids || [];
@@ -665,7 +716,7 @@
                     contentHtml = `
                         ${result.og_title ? `<div class="link-title">${highlightedTitle}</div>` : ''}
                         ${result.og_description ? `<div class="link-description">${highlightedDesc}</div>` : ''}
-                        ${result.og_site_name ? `<div class="link-site">${result.og_site_name}</div>` : ''}
+                        ${result.og_site_name ? `<div class="link-site">${highlightedSite}</div>` : ''}
                     `;
                 } else if (result.status === 'pending') {
                     contentHtml = '<div class="link-no-og">OG metadata not yet fetched</div>';
@@ -688,7 +739,7 @@
 
                 const resultHtml = `
                     <div class="result-item" style="cursor: default;">
-                        <div class="link-url"><a href="${result.url}" target="_blank">${result.url}</a></div>
+                        <div class="link-url"><a href="${result.url}" target="_blank">${highlightedUrl}</a></div>
                         <div class="result-content">${contentHtml}</div>
                         <div class="result-meta">
                             <span class="result-type is-link">link</span>
@@ -1083,6 +1134,7 @@
 
         // Initialize on load
         initDatabase();
+        onSearchTypeChange(); // Ensure UI state matches dropdown (in case browser restored form state)
 
         document.addEventListener('DOMContentLoaded', initPopupHandlers);
     </script>

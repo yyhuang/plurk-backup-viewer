@@ -9,14 +9,9 @@ Routes requests to appropriate directory:
 - /index.html → backup directory (original viewer)
 
 Usage:
-    plurk-tools serve <viewer_path> [--port 8000]
-
-Examples:
-    plurk-tools serve ../username-viewer
-    plurk-tools serve ../username-viewer --port 3000
+    plurk-tools serve [--port 8000]
 """
 
-import argparse
 import http.server
 import json
 import socketserver
@@ -25,9 +20,14 @@ import urllib.parse
 from pathlib import Path
 
 
-def load_config(viewer_path: Path) -> dict:
+# Paths relative to this file
+TOOL_ROOT = Path(__file__).parent.parent
+VIEWER_DIR = TOOL_ROOT / "viewer"
+
+
+def load_config() -> dict:
     """Load config.json from viewer directory."""
-    config_path = viewer_path / "config.json"
+    config_path = VIEWER_DIR / "config.json"
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     return json.loads(config_path.read_text())
@@ -36,11 +36,9 @@ def load_config(viewer_path: Path) -> dict:
 class DualDirectoryHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP handler that routes requests to viewer or backup directory."""
 
-    viewer_path: Path
     backup_path: Path
 
-    def __init__(self, *args, viewer_path: Path, backup_path: Path, **kwargs):
-        self.viewer_path = viewer_path
+    def __init__(self, *args, backup_path: Path, **kwargs):
         self.backup_path = backup_path
         super().__init__(*args, **kwargs)
 
@@ -78,10 +76,10 @@ class DualDirectoryHandler(http.server.SimpleHTTPRequestHandler):
             if filename.startswith("backup.") or filename.startswith("jquery") or filename == "icons.png":
                 return str(self.backup_path / clean_path)
             # sql-wasm.* and other viewer static files
-            return str(self.viewer_path / clean_path)
+            return str(VIEWER_DIR / clean_path)
 
         # Default: viewer directory (landing.html, search.html, plurks.db)
-        return str(self.viewer_path / clean_path)
+        return str(VIEWER_DIR / clean_path)
 
     def end_headers(self):
         """Add no-cache headers."""
@@ -91,34 +89,31 @@ class DualDirectoryHandler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
-def make_handler(viewer_path: Path, backup_path: Path):
+def make_handler(backup_path: Path):
     """Create a handler class with the paths bound."""
 
     class BoundHandler(DualDirectoryHandler):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, viewer_path=viewer_path, backup_path=backup_path, **kwargs)
+            super().__init__(*args, backup_path=backup_path, **kwargs)
 
     return BoundHandler
 
 
-def cmd_serve(viewer_path: Path, port: int = 8000) -> int:
+def cmd_serve(port: int = 8000) -> int:
     """Start development server.
 
     Args:
-        viewer_path: Path to viewer directory
         port: Port number (default: 8000)
 
     Returns:
         Exit code (0 for success)
     """
-    viewer_path = viewer_path.resolve()
-
     # Load config to get backup path
     try:
-        config = load_config(viewer_path)
+        config = load_config()
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
-        print("Run 'plurk-tools init' first to create the viewer.", file=sys.stderr)
+        print("Run 'plurk-tools init <backup_path>' first.", file=sys.stderr)
         return 1
 
     backup_path = Path(config["backup_path"])
@@ -127,11 +122,11 @@ def cmd_serve(viewer_path: Path, port: int = 8000) -> int:
         return 1
 
     # Create handler and start server
-    handler = make_handler(viewer_path, backup_path)
+    handler = make_handler(backup_path)
 
     with socketserver.TCPServer(("", port), handler) as httpd:
         print(f"Serving at http://localhost:{port} (no-cache mode)")
-        print(f"  Viewer: {viewer_path}")
+        print(f"  Viewer: {VIEWER_DIR}")
         print(f"  Backup: {backup_path}")
         print()
         print("Press Ctrl+C to stop")
@@ -145,12 +140,12 @@ def cmd_serve(viewer_path: Path, port: int = 8000) -> int:
 
 def main():
     """Standalone entry point for serve command."""
-    parser = argparse.ArgumentParser(description="Development server with dual-directory routing")
-    parser.add_argument("viewer_path", type=Path, help="Path to viewer directory")
+    import argparse
+    parser = argparse.ArgumentParser(description="Development server")
     parser.add_argument("--port", type=int, default=8000, help="Port number (default: 8000)")
     args = parser.parse_args()
 
-    return cmd_serve(args.viewer_path, args.port)
+    return cmd_serve(args.port)
 
 
 if __name__ == "__main__":

@@ -315,194 +315,86 @@ class TestCreateLinkMetadataTable:
         create_link_metadata_table(conn)  # Should not raise
 
 
-class TestCLI:
-    """Tests for CLI argument parsing."""
+class TestOGFetcherTitleFallback:
+    """Tests for <title> fallback when OG metadata is missing."""
 
-    def test_no_subcommand_fails(self):
-        """Running without subcommand should fail."""
-        import subprocess
+    def _make_fetcher_with_mock(self, evaluate_return, content_type="text/html"):
+        """Create an OGFetcher with mocked Playwright internals."""
+        from unittest.mock import MagicMock
 
-        result = subprocess.run(
-            ["python", "links_cmd.py"],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
+        from links_cmd import OGFetcher
+
+        fetcher = OGFetcher.__new__(OGFetcher)
+        fetcher.timeout = 10000
+        fetcher.retries = 3
+
+        mock_response = MagicMock()
+        mock_response.headers = {"content-type": content_type}
+
+        mock_page = MagicMock()
+        mock_page.goto.return_value = mock_response
+        mock_page.evaluate.return_value = evaluate_return
+
+        mock_context = MagicMock()
+        mock_context.new_page.return_value = mock_page
+        fetcher._context = mock_context
+
+        return fetcher
+
+    def test_og_title_preferred_over_page_title(self):
+        """OG title takes precedence over <title>."""
+        fetcher = self._make_fetcher_with_mock(
+            {"og": {"title": "OG Title", "description": "desc"}, "title": "Page Title"}
         )
-        assert result.returncode != 0
-        assert "required" in result.stderr.lower() or "usage" in result.stderr.lower()
+        result = fetcher._fetch_once("https://example.com")
+        assert result.status == "success"
+        assert result.title == "OG Title"
+        assert result.description == "desc"
 
-    def test_extract_requires_month(self, tmp_path: Path):
-        """extract without --month should fail."""
-        import subprocess
-
-        # Create minimal backup structure
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "extract", str(backup_dir)],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
+    def test_page_title_fallback_when_no_og(self):
+        """Use <title> when no OG tags exist."""
+        fetcher = self._make_fetcher_with_mock(
+            {"og": {}, "title": "My Page Title"}
         )
-        assert result.returncode != 0
-        assert "--month" in result.stderr
+        result = fetcher._fetch_once("https://example.com")
+        assert result.status == "success"
+        assert result.title == "My Page Title"
+        assert result.description is None
 
-    def test_extract_validates_month_format_length(self, tmp_path: Path):
-        """extract with invalid --month length should fail."""
-        import subprocess
-
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "extract", str(backup_dir), "--month", "2018"],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
+    def test_page_title_fallback_when_og_title_missing(self):
+        """Use <title> when OG exists but og:title is missing."""
+        fetcher = self._make_fetcher_with_mock(
+            {"og": {"description": "Some description"}, "title": "Fallback Title"}
         )
-        assert result.returncode != 0
-        assert "YYYYMM" in result.stderr
+        result = fetcher._fetch_once("https://example.com")
+        assert result.status == "success"
+        assert result.title == "Fallback Title"
+        assert result.description == "Some description"
 
-    def test_extract_validates_month_format_invalid_month(self, tmp_path: Path):
-        """extract with invalid month number should fail."""
-        import subprocess
-
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "extract", str(backup_dir), "--month", "201813"],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
+    def test_no_og_no_title(self):
+        """Return no_og when neither OG nor <title> exists."""
+        fetcher = self._make_fetcher_with_mock(
+            {"og": {}, "title": ""}
         )
-        assert result.returncode != 0
-        assert "01-12" in result.stderr
+        result = fetcher._fetch_once("https://example.com")
+        assert result.status == "no_og"
 
-    def test_extract_requires_backup_path(self):
-        """extract without backup_path should fail."""
-        import subprocess
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "extract", "--month", "201810"],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
+    def test_whitespace_only_title_ignored(self):
+        """Whitespace-only <title> is treated as empty."""
+        fetcher = self._make_fetcher_with_mock(
+            {"og": {}, "title": "   "}
         )
-        assert result.returncode != 0
+        result = fetcher._fetch_once("https://example.com")
+        assert result.status == "no_og"
 
-    def test_fetch_previews_no_required_options(self, tmp_path: Path):
-        """fetch-previews only needs backup_path, other options have defaults."""
-        import subprocess
-
-        # Create backup structure with database
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        # Create database with link_metadata table
-        db_path = backup_dir / "data" / "plurks.db"
-        conn = sqlite3.connect(db_path)
-        create_link_metadata_table(conn)
-        conn.close()
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "fetch-previews", str(backup_dir)],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
+    def test_image_content_type_still_returns_image(self):
+        """Image content-type takes priority over title fallback."""
+        fetcher = self._make_fetcher_with_mock(
+            {"og": {}, "title": "Some Title"}, content_type="image/jpeg"
         )
-        # Should succeed (with "No pending URLs" message)
-        assert result.returncode == 0
-        assert "No pending URLs" in result.stdout
+        result = fetcher._fetch_once("https://example.com/photo")
+        assert result.status == "image"
 
-    def test_fetch_previews_accepts_optional_limit(self, tmp_path: Path):
-        """fetch-previews accepts --limit option."""
-        import subprocess
 
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        db_path = backup_dir / "data" / "plurks.db"
-        conn = sqlite3.connect(db_path)
-        create_link_metadata_table(conn)
-        conn.close()
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "fetch-previews", str(backup_dir), "--limit", "100"],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
-        )
-        assert result.returncode == 0
-
-    def test_fetch_previews_accepts_optional_timeout_and_retries(self, tmp_path: Path):
-        """fetch-previews accepts --timeout and --retries options."""
-        import subprocess
-
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        db_path = backup_dir / "data" / "plurks.db"
-        conn = sqlite3.connect(db_path)
-        create_link_metadata_table(conn)
-        conn.close()
-
-        result = subprocess.run(
-            [
-                "python", "links_cmd.py", "fetch-previews", str(backup_dir),
-                "--timeout", "5000", "--retries", "2"
-            ],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
-        )
-        assert result.returncode == 0
-
-    def test_status_no_required_options(self, tmp_path: Path):
-        """status only needs backup_path."""
-        import subprocess
-
-        backup_dir = tmp_path / "backup"
-        (backup_dir / "data" / "plurks").mkdir(parents=True)
-        (backup_dir / "data" / "responses").mkdir(parents=True)
-        (backup_dir / "data" / "indexes.js").write_text("BackupData.indexes={};")
-
-        db_path = backup_dir / "data" / "plurks.db"
-        conn = sqlite3.connect(db_path)
-        create_link_metadata_table(conn)
-        conn.close()
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "status", str(backup_dir)],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
-        )
-        assert result.returncode == 0
-        assert "Total URLs" in result.stdout
-
-    def test_invalid_backup_path(self, tmp_path: Path):
-        """Commands should fail with invalid backup path."""
-        import subprocess
-
-        result = subprocess.run(
-            ["python", "links_cmd.py", "status", str(tmp_path / "nonexistent")],
-            capture_output=True,
-            text=True,
-            cwd=Path(__file__).parent.parent,
-        )
-        assert result.returncode != 0
-        assert "Invalid backup directory" in result.stderr
+# Note: CLI tests for links_cmd.py were removed since the standalone CLI was
+# deprecated in favor of the unified CLI (plurk-tools links ...)
