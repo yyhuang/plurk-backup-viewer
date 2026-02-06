@@ -120,6 +120,25 @@ uv run plurk-tools init ../username-backup
 uv run plurk-tools patch
 ```
 
+## 中日韓搜尋優化（選用）
+
+預設的 FTS5 分詞器（`unicode61`）可以進行基本的中日韓搜尋，但如果需要更好的中文斷詞效果，可以安裝 [fts5-icu-tokenizer](https://github.com/cwt/fts5-icu-tokenizer) 擴充套件。
+
+1. 從該專案編譯 `libfts5_icu.dylib`（macOS）或 `libfts5_icu.so`（Linux）
+2. 放置到 `viewer/lib/` 目錄
+3. 重建 FTS5 索引：
+
+```bash
+uv run plurk-tools reindex
+```
+
+`init` 和 `reindex` 都會從 `viewer/lib/` 自動偵測擴充套件。
+
+| 分詞器 | 中日韓行為 |
+|--------|-----------|
+| `unicode61`（預設） | 逐字分詞，適用於大部分搜尋 |
+| `icu`（需安裝擴充套件） | 正確的中文、日文、韓文斷詞 |
+
 ## 運作原理
 
 - **資料庫**：SQLite 搭配 FTS5 全文搜尋索引

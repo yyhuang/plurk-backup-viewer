@@ -17,9 +17,57 @@ from utils import (
 )
 
 
-def create_schema(conn: sqlite3.Connection) -> None:
-    """Create database schema with FTS5 tables and triggers."""
-    conn.executescript("""
+def load_icu_extension(conn: sqlite3.Connection, extension_path: str) -> None:
+    """Load fts5-icu-tokenizer SQLite extension.
+
+    Args:
+        conn: SQLite connection
+        extension_path: Path to the .dylib/.so extension file
+    """
+    conn.enable_load_extension(True)
+    conn.load_extension(extension_path)
+    conn.enable_load_extension(False)
+
+
+def resolve_icu_extension(config: dict | None = None) -> str | None:
+    """Resolve ICU extension path from config or default location.
+
+    Resolution order:
+    1. config["icu_extension_path"] if present
+    2. viewer/lib/libfts5_icu.dylib (default location)
+    3. None (fall back to unicode61)
+
+    Args:
+        config: Parsed config.json dict, or None
+
+    Returns:
+        Path string to ICU extension, or None if not found
+    """
+    tool_root = Path(__file__).parent.parent
+    viewer_dir = tool_root / "viewer"
+
+    # Check config
+    if config and config.get("icu_extension_path"):
+        path = config["icu_extension_path"]
+        if Path(path).exists():
+            return path
+
+    # Check default location
+    default_path = viewer_dir / "lib" / "libfts5_icu.dylib"
+    if default_path.exists():
+        return str(default_path)
+
+    return None
+
+
+def create_schema(conn: sqlite3.Connection, tokenizer: str = "unicode61") -> None:
+    """Create database schema with FTS5 tables and triggers.
+
+    Args:
+        conn: SQLite connection
+        tokenizer: FTS5 tokenizer name (e.g., 'unicode61' or 'icu zh')
+    """
+    conn.executescript(f"""
         -- Main tables
         CREATE TABLE IF NOT EXISTS plurks (
             id INTEGER PRIMARY KEY,
@@ -45,14 +93,14 @@ def create_schema(conn: sqlite3.Connection) -> None:
             content_raw,
             content='plurks',
             content_rowid='id',
-            tokenize='unicode61'
+            tokenize='{tokenizer}'
         );
 
         CREATE VIRTUAL TABLE IF NOT EXISTS responses_fts USING fts5(
             content_raw,
             content='responses',
             content_rowid='id',
-            tokenize='unicode61'
+            tokenize='{tokenizer}'
         );
 
         -- Triggers to keep FTS in sync with main tables

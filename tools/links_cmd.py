@@ -268,9 +268,16 @@ def merge_url_sources(base: dict[str, dict], new: dict[str, dict]) -> dict[str, 
 # ============== Database Operations ==============
 
 
-def create_link_metadata_table(conn: sqlite3.Connection) -> None:
-    """Create the link_metadata table with FTS5 if it doesn't exist."""
-    conn.executescript("""
+def create_link_metadata_table(
+    conn: sqlite3.Connection, tokenizer: str = "unicode61"
+) -> None:
+    """Create the link_metadata table with FTS5 if it doesn't exist.
+
+    Args:
+        conn: SQLite connection
+        tokenizer: FTS5 tokenizer name (e.g., 'unicode61' or 'icu zh')
+    """
+    conn.executescript(f"""
         CREATE TABLE IF NOT EXISTS link_metadata (
             url TEXT PRIMARY KEY,
             og_title TEXT,
@@ -288,7 +295,7 @@ def create_link_metadata_table(conn: sqlite3.Connection) -> None:
             og_site_name,
             content='link_metadata',
             content_rowid='rowid',
-            tokenize='unicode61'
+            tokenize='{tokenizer}'
         );
 
         -- Triggers to keep FTS in sync

@@ -120,6 +120,25 @@ uv run plurk-tools init ../username-backup
 uv run plurk-tools patch
 ```
 
+## CJK Search (Optional)
+
+The default FTS5 tokenizer (`unicode61`) works for basic CJK search, but for better Chinese/Japanese/Korean word segmentation, you can install the [fts5-icu-tokenizer](https://github.com/cwt/fts5-icu-tokenizer) extension.
+
+1. Build `libfts5_icu.dylib` (macOS) or `libfts5_icu.so` (Linux) from the repo
+2. Place it in `viewer/lib/`
+3. Rebuild the FTS5 indexes:
+
+```bash
+uv run plurk-tools reindex
+```
+
+The extension is auto-detected from `viewer/lib/` by both `init` and `reindex`.
+
+| Tokenizer | CJK Behavior |
+|-----------|-------------|
+| `unicode61` (default) | Character-level tokenization, works for most searches |
+| `icu` (with extension) | Proper word segmentation for Chinese, Japanese, Korean |
+
 ## How It Works
 
 - **Database**: SQLite with FTS5 full-text search index

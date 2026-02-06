@@ -11,7 +11,13 @@ import json
 import sys
 from pathlib import Path
 
-from database import create_schema, import_plurks, import_responses
+from database import (
+    create_schema,
+    import_plurks,
+    import_responses,
+    load_icu_extension,
+    resolve_icu_extension,
+)
 from utils import (
     calculate_scan_range,
     filter_plurk_files,
@@ -26,17 +32,26 @@ TOOL_ROOT = Path(__file__).parent.parent
 VIEWER_DIR = TOOL_ROOT / "viewer"
 
 
-def create_config(backup_path: Path) -> None:
+def create_config(backup_path: Path, icu_extension_path: str | None = None) -> None:
     """Create config.json in viewer directory."""
-    config = {
+    config: dict = {
         "backup_path": str(backup_path.resolve()),
     }
+    if icu_extension_path:
+        config["icu_extension_path"] = icu_extension_path
     config_path = VIEWER_DIR / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
 
 
-def build_database(backup_path: Path, db_path: Path) -> tuple[int, int]:
+def build_database(
+    backup_path: Path, db_path: Path, icu_extension_path: str | None = None
+) -> tuple[int, int]:
     """Build SQLite database from backup.
+
+    Args:
+        backup_path: Path to backup directory
+        db_path: Path for output database
+        icu_extension_path: Optional path to ICU tokenizer extension
 
     Returns:
         Tuple of (plurk_count, response_count)
@@ -47,12 +62,19 @@ def build_database(backup_path: Path, db_path: Path) -> tuple[int, int]:
     plurks_dir = backup_path / "data" / "plurks"
     responses_dir = backup_path / "data" / "responses"
 
+    # Determine tokenizer
+    tokenizer = "unicode61"
+    if icu_extension_path:
+        tokenizer = "icu zh"
+
     # Check if database exists (incremental update)
     is_incremental = db_path.exists()
 
     if is_incremental:
         print(f"Updating existing database: {db_path}")
         conn = sqlite3.connect(db_path)
+        if icu_extension_path:
+            load_icu_extension(conn, icu_extension_path)
         scan_start, scan_end = calculate_scan_range(conn, date.today())
         if scan_start:
             print(f"Scanning files from {scan_start} to {scan_end}")
@@ -61,7 +83,9 @@ def build_database(backup_path: Path, db_path: Path) -> tuple[int, int]:
     else:
         print(f"Creating new database: {db_path}")
         conn = sqlite3.connect(db_path)
-        create_schema(conn)
+        if icu_extension_path:
+            load_icu_extension(conn, icu_extension_path)
+        create_schema(conn, tokenizer)
         scan_start, scan_end = None, None
 
     # Filter and import plurks
@@ -92,11 +116,12 @@ def build_database(backup_path: Path, db_path: Path) -> tuple[int, int]:
     return plurk_count, response_count
 
 
-def cmd_init(backup_path: Path) -> int:
+def cmd_init(backup_path: Path, icu_extension: str | None = None) -> int:
     """Initialize database from Plurk backup.
 
     Args:
         backup_path: Path to backup directory
+        icu_extension: Optional path to ICU tokenizer extension
 
     Returns:
         Exit code (0 for success)
@@ -110,21 +135,39 @@ def cmd_init(backup_path: Path) -> int:
         print("Required: data/plurks/, data/responses/, data/indexes.js", file=sys.stderr)
         return 1
 
+    # Resolve ICU extension path
+    icu_path = icu_extension
+    if icu_path:
+        icu_path = str(Path(icu_path).resolve())
+        if not Path(icu_path).exists():
+            print(f"Error: ICU extension not found: {icu_path}", file=sys.stderr)
+            return 1
+        print(f"ICU extension: {icu_path}")
+    else:
+        # Check default location
+        icu_path = resolve_icu_extension()
+        if icu_path:
+            print(f"ICU extension (auto-detected): {icu_path}")
+        else:
+            print("Warning: No ICU extension found. Using unicode61 tokenizer.")
+            print("  For better CJK search, place libfts5_icu.dylib in viewer/lib/")
+
     print(f"Backup: {backup_path}")
     print(f"Viewer: {VIEWER_DIR}")
     print()
 
     # Step 1: Create config.json
     print("Creating config.json...")
-    create_config(backup_path)
+    create_config(backup_path, icu_path)
 
     # Step 2: Build database
     print("Building database...")
     db_path = VIEWER_DIR / "plurks.db"
-    plurk_count, response_count = build_database(backup_path, db_path)
+    plurk_count, response_count = build_database(backup_path, db_path, icu_path)
 
     print()
     print(f"Done! Database: {plurk_count:,} plurks, {response_count:,} responses")
+    print(f"Tokenizer: {'icu zh' if icu_path else 'unicode61'}")
     print()
     print("To start the server:")
     print(f"  cd {TOOL_ROOT / 'tools'}")

@@ -52,6 +52,12 @@ Examples:
         type=Path,
         help="Path to backup directory (e.g., ../username-backup)",
     )
+    init_parser.add_argument(
+        "--icu-extension",
+        type=str,
+        default=None,
+        help="Path to fts5-icu-tokenizer .dylib/.so (default: viewer/lib/libfts5_icu.dylib)",
+    )
 
     # ========== serve command ==========
     serve_parser = subparsers.add_parser(
@@ -71,6 +77,13 @@ Examples:
         "patch",
         help="Add link to enhanced viewer in backup's index.html",
         description="Patch the original Plurk backup's index.html to add a link to the enhanced landing page",
+    )
+
+    # ========== reindex command ==========
+    subparsers.add_parser(
+        "reindex",
+        help="Rebuild FTS5 indexes (e.g., after changing tokenizer)",
+        description="Drop and recreate FTS5 full-text search indexes using the configured tokenizer",
     )
 
     # ========== links command ==========
@@ -134,7 +147,7 @@ Examples:
     if args.command == "init":
         from init_cmd import cmd_init
 
-        return cmd_init(args.backup_path)
+        return cmd_init(args.backup_path, icu_extension=args.icu_extension)
 
     elif args.command == "serve":
         from serve_cmd import cmd_serve
@@ -145,6 +158,11 @@ Examples:
         from patch_cmd import cmd_patch
 
         return cmd_patch()
+
+    elif args.command == "reindex":
+        from reindex_cmd import cmd_reindex
+
+        return cmd_reindex()
 
     elif args.command == "links":
         from links_cmd import cmd_links

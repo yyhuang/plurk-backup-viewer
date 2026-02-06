@@ -255,7 +255,6 @@
             overflow-y: scroll;
         }
     </style>
-    <script src="static/sql-wasm.js"></script>
     <script>
         // Initialize BackupData before loading data files
         BackupData = { info: {}, user: {}, indexes: {}, plurks: {}, responses: {} };
@@ -276,7 +275,7 @@
 
     <div class="search-container">
         <div id="loading-section" class="loading">
-            Loading database... This may take a few seconds.
+            Loading...
         </div>
 
         <div id="stats-section" style="display: none;" class="stats">
@@ -305,7 +304,7 @@
                     </select>
                 </div>
 
-                <button id="search-btn" class="search-btn" onclick="performSearch()" disabled>Loading Database...</button>
+                <button id="search-btn" class="search-btn" onclick="performSearch()" disabled>Loading...</button>
             </div>
         </div>
 
@@ -336,42 +335,28 @@
     </div>
 
     <script>
-        let db = null;
         let currentPage = 0;
         let currentQuery = '';
         let currentSearchType = 'all';
         const RESULTS_PER_PAGE = 50;
 
-        // Initialize database
+        // Initialize by fetching stats from server API
         async function initDatabase() {
             try {
-                const SQL = await initSqlJs({
-                    locateFile: file => `static/${file}`
-                });
-
-                const response = await fetch('plurks.db');
+                const response = await fetch('/api/stats');
                 if (!response.ok) {
-                    throw new Error('Database file not found. Run plurk-tools init first.');
+                    throw new Error('Failed to load stats. Is the server running?');
                 }
 
-                const buffer = await response.arrayBuffer();
-                db = new SQL.Database(new Uint8Array(buffer));
+                const stats = await response.json();
 
-                // Get stats
-                const plurkCount = db.exec("SELECT COUNT(*) FROM plurks")[0].values[0][0];
-                const responseCount = db.exec("SELECT COUNT(*) FROM responses")[0].values[0][0];
-
-                // Check if link_metadata table exists and get count
                 let linkStats = '';
-                const linkTableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata'");
-                if (linkTableExists.length > 0 && linkTableExists[0].values.length > 0) {
-                    const linkCount = db.exec("SELECT COUNT(*) FROM link_metadata")[0].values[0][0];
-                    const linkWithOg = db.exec("SELECT COUNT(*) FROM link_metadata WHERE status = 'success'")[0].values[0][0];
-                    linkStats = `, ${linkCount.toLocaleString()} links (${linkWithOg.toLocaleString()} with OG)`;
+                if (stats.link_count > 0) {
+                    linkStats = `, ${stats.link_count.toLocaleString()} links (${stats.link_with_og.toLocaleString()} with OG)`;
                 }
 
                 document.getElementById('search-stats').innerHTML = `
-                    <strong>Database loaded:</strong> ${plurkCount.toLocaleString()} plurks, ${responseCount.toLocaleString()} responses${linkStats}
+                    <strong>Database loaded:</strong> ${stats.plurk_count.toLocaleString()} plurks, ${stats.response_count.toLocaleString()} responses${linkStats}
                     | <strong>User:</strong> ${BackupData.user.display_name} (@${BackupData.user.nick_name})
                 `;
                 document.getElementById('stats-section').style.display = 'block';
@@ -384,45 +369,12 @@
                 document.getElementById('search-query').focus();
 
             } catch (error) {
-                console.error('Failed to load database:', error);
+                console.error('Failed to load stats:', error);
                 document.getElementById('loading-section').style.display = 'none';
                 document.getElementById('error-section').textContent =
-                    'Failed to load database: ' + error.message;
+                    'Failed to connect to server: ' + error.message;
                 document.getElementById('error-section').style.display = 'block';
             }
-        }
-
-        // Build LIKE pattern from user input
-        function buildLikePattern(query) {
-            // Escape special LIKE characters and wrap with %
-            const escaped = query.trim()
-                .replace(/[%_]/g, '\\$&');
-            return `%${escaped}%`;
-        }
-
-        // Check if a string contains CJK characters
-        function containsCJK(str) {
-            // CJK Unified Ideographs, Hiragana, Katakana, Hangul
-            return /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(str);
-        }
-
-        // Build FTS5 query from user input
-        function buildFtsQuery(query) {
-            // Split by whitespace and add prefix matching (except for CJK)
-            return query.trim()
-                .split(/\s+/)
-                .filter(term => term.length > 0)
-                .map(term => {
-                    // Escape special FTS5 characters
-                    const escaped = term.replace(/["]/g, '""');
-                    // Don't add * suffix for CJK - unicode61 tokenizes each character separately
-                    // so prefix matching doesn't work as expected for CJK phrases
-                    if (containsCJK(term)) {
-                        return `"${escaped}"`;
-                    }
-                    return `"${escaped}"*`;
-                })
-                .join(' ');
         }
 
         // Handle search type change (update placeholder text)
@@ -431,7 +383,6 @@
             const searchInput = document.getElementById('search-query');
             const searchModeGroup = document.getElementById('search-mode-group');
 
-            // Always show search mode dropdown (LIKE fallback now available for links too)
             searchModeGroup.style.display = 'flex';
 
             if (searchType === 'links') {
@@ -452,137 +403,39 @@
             currentSearchType = document.getElementById('search-type').value;
             currentPage = 0;
 
-            if (currentSearchType === 'links') {
-                executeLinksSearch();
-            } else {
-                executeSearch();
-            }
+            executeSearch();
         }
 
-        function executeSearch() {
-            if (!db) return;
-
+        async function executeSearch() {
             const searchMode = document.getElementById('search-mode').value;
-            const offset = currentPage * RESULTS_PER_PAGE;
+            const params = new URLSearchParams({
+                q: currentQuery,
+                type: currentSearchType,
+                mode: searchMode,
+                page: currentPage.toString()
+            });
 
-            let results = [];
-            let totalCount = 0;
+            document.getElementById('error-section').style.display = 'none';
 
             try {
-                if (searchMode === 'fts') {
-                    // FTS5 search
-                    const ftsQuery = buildFtsQuery(currentQuery);
-
-                    // Search plurks with FTS5
-                    if (currentSearchType === 'all' || currentSearchType === 'plurks') {
-                        const plurkResults = db.exec(`
-                            SELECT p.id, p.base_id, p.content_raw, p.posted, p.qualifier, p.response_count, 'plurk' as type
-                            FROM plurks p
-                            JOIN plurks_fts ON plurks_fts.rowid = p.id
-                            WHERE plurks_fts MATCH ?
-                            ORDER BY p.posted DESC
-                            LIMIT ? OFFSET ?
-                        `, [ftsQuery, RESULTS_PER_PAGE, offset]);
-
-                        if (plurkResults.length > 0) {
-                            results = results.concat(plurkResults[0].values.map(row => ({
-                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
-                                qualifier: row[4], response_count: row[5], type: row[6]
-                            })));
-                        }
-
-                        const plurkCountResult = db.exec(`
-                            SELECT COUNT(*) FROM plurks_fts WHERE plurks_fts MATCH ?
-                        `, [ftsQuery]);
-                        if (plurkCountResult.length > 0) {
-                            totalCount += plurkCountResult[0].values[0][0];
-                        }
-                    }
-
-                    // Search responses with FTS5
-                    if (currentSearchType === 'all' || currentSearchType === 'responses') {
-                        const responseResults = db.exec(`
-                            SELECT r.id, r.base_id, r.content_raw, r.posted, r.user_nick, r.user_display, 'response' as type
-                            FROM responses r
-                            JOIN responses_fts ON responses_fts.rowid = r.id
-                            WHERE responses_fts MATCH ?
-                            ORDER BY r.posted DESC
-                            LIMIT ? OFFSET ?
-                        `, [ftsQuery, RESULTS_PER_PAGE, offset]);
-
-                        if (responseResults.length > 0) {
-                            results = results.concat(responseResults[0].values.map(row => ({
-                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
-                                user_nick: row[4], user_display: row[5], type: row[6]
-                            })));
-                        }
-
-                        const responseCountResult = db.exec(`
-                            SELECT COUNT(*) FROM responses_fts WHERE responses_fts MATCH ?
-                        `, [ftsQuery]);
-                        if (responseCountResult.length > 0) {
-                            totalCount += responseCountResult[0].values[0][0];
-                        }
-                    }
-                } else {
-                    // LIKE search
-                    const likePattern = buildLikePattern(currentQuery);
-
-                    // Search plurks with LIKE
-                    if (currentSearchType === 'all' || currentSearchType === 'plurks') {
-                        const plurkResults = db.exec(`
-                            SELECT id, base_id, content_raw, posted, qualifier, response_count, 'plurk' as type
-                            FROM plurks
-                            WHERE content_raw LIKE ?
-                            ORDER BY posted DESC
-                            LIMIT ? OFFSET ?
-                        `, [likePattern, RESULTS_PER_PAGE, offset]);
-
-                        if (plurkResults.length > 0) {
-                            results = results.concat(plurkResults[0].values.map(row => ({
-                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
-                                qualifier: row[4], response_count: row[5], type: row[6]
-                            })));
-                        }
-
-                        const plurkCountResult = db.exec(`
-                            SELECT COUNT(*) FROM plurks WHERE content_raw LIKE ?
-                        `, [likePattern]);
-                        if (plurkCountResult.length > 0) {
-                            totalCount += plurkCountResult[0].values[0][0];
-                        }
-                    }
-
-                    // Search responses with LIKE
-                    if (currentSearchType === 'all' || currentSearchType === 'responses') {
-                        const responseResults = db.exec(`
-                            SELECT id, base_id, content_raw, posted, user_nick, user_display, 'response' as type
-                            FROM responses
-                            WHERE content_raw LIKE ?
-                            ORDER BY posted DESC
-                            LIMIT ? OFFSET ?
-                        `, [likePattern, RESULTS_PER_PAGE, offset]);
-
-                        if (responseResults.length > 0) {
-                            results = results.concat(responseResults[0].values.map(row => ({
-                                id: row[0], base_id: row[1], content_raw: row[2], posted: row[3],
-                                user_nick: row[4], user_display: row[5], type: row[6]
-                            })));
-                        }
-
-                        const responseCountResult = db.exec(`
-                            SELECT COUNT(*) FROM responses WHERE content_raw LIKE ?
-                        `, [likePattern]);
-                        if (responseCountResult.length > 0) {
-                            totalCount += responseCountResult[0].values[0][0];
-                        }
-                    }
+                const response = await fetch(`/api/search?${params}`);
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
                 }
 
-                // Sort combined results by date
-                results.sort((a, b) => new Date(b.posted) - new Date(a.posted));
+                const data = await response.json();
 
-                displayResults(results, totalCount);
+                if (data.error) {
+                    document.getElementById('error-section').textContent = data.error;
+                    document.getElementById('error-section').style.display = 'block';
+                    return;
+                }
+
+                if (currentSearchType === 'links') {
+                    displayLinkResults(data.results, data.total, data.pages);
+                } else {
+                    displayResults(data.results, data.total, data.pages);
+                }
 
             } catch (error) {
                 console.error('Search error:', error);
@@ -592,101 +445,8 @@
             }
         }
 
-        // Execute search for links (OG metadata)
-        function executeLinksSearch() {
-            if (!db) return;
-
-            const searchMode = document.getElementById('search-mode').value;
-            const offset = currentPage * RESULTS_PER_PAGE;
-
-            try {
-                // Check if link_metadata table exists
-                const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata'");
-                if (tableExists.length === 0 || tableExists[0].values.length === 0) {
-                    document.getElementById('error-section').textContent =
-                        'Link search not available. Run plurk-tools links extract first.';
-                    document.getElementById('error-section').style.display = 'block';
-                    return;
-                }
-
-                let linkResults, countResult;
-
-                if (searchMode === 'fts') {
-                    // Check if FTS table exists
-                    const ftsExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata_fts'");
-                    if (ftsExists.length === 0 || ftsExists[0].values.length === 0) {
-                        document.getElementById('error-section').textContent =
-                            'FTS index not available. Try LIKE mode or run plurk-tools links extract.';
-                        document.getElementById('error-section').style.display = 'block';
-                        return;
-                    }
-
-                    const ftsQuery = buildFtsQuery(currentQuery);
-
-                    // Search links with FTS5
-                    linkResults = db.exec(`
-                        SELECT lm.url, lm.og_title, lm.og_description, lm.og_site_name, lm.sources, lm.status
-                        FROM link_metadata lm
-                        JOIN link_metadata_fts ON link_metadata_fts.rowid = lm.rowid
-                        WHERE link_metadata_fts MATCH ?
-                        ORDER BY lm.rowid DESC
-                        LIMIT ? OFFSET ?
-                    `, [ftsQuery, RESULTS_PER_PAGE, offset]);
-
-                    // Get total count
-                    countResult = db.exec(`
-                        SELECT COUNT(*) FROM link_metadata_fts WHERE link_metadata_fts MATCH ?
-                    `, [ftsQuery]);
-                } else {
-                    // LIKE search - searches URL, title, description, and site name
-                    const likePattern = buildLikePattern(currentQuery);
-
-                    linkResults = db.exec(`
-                        SELECT url, og_title, og_description, og_site_name, sources, status
-                        FROM link_metadata
-                        WHERE url LIKE ?
-                           OR og_title LIKE ?
-                           OR og_description LIKE ?
-                           OR og_site_name LIKE ?
-                        ORDER BY rowid DESC
-                        LIMIT ? OFFSET ?
-                    `, [likePattern, likePattern, likePattern, likePattern, RESULTS_PER_PAGE, offset]);
-
-                    countResult = db.exec(`
-                        SELECT COUNT(*) FROM link_metadata
-                        WHERE url LIKE ?
-                           OR og_title LIKE ?
-                           OR og_description LIKE ?
-                           OR og_site_name LIKE ?
-                    `, [likePattern, likePattern, likePattern, likePattern]);
-                }
-
-                let results = [];
-                if (linkResults.length > 0) {
-                    results = linkResults[0].values.map(row => ({
-                        url: row[0],
-                        og_title: row[1],
-                        og_description: row[2],
-                        og_site_name: row[3],
-                        sources: row[4] ? JSON.parse(row[4]) : {},
-                        status: row[5],
-                        type: 'link'
-                    }));
-                }
-
-                const totalCount = countResult.length > 0 ? countResult[0].values[0][0] : 0;
-                displayLinkResults(results, totalCount);
-
-            } catch (error) {
-                console.error('Link search error:', error);
-                document.getElementById('error-section').textContent =
-                    'Link search error: ' + error.message + '. Try LIKE mode or simpler search terms.';
-                document.getElementById('error-section').style.display = 'block';
-            }
-        }
-
         // Display link search results
-        function displayLinkResults(results, totalCount) {
+        function displayLinkResults(results, totalCount, totalPages) {
             document.getElementById('error-section').style.display = 'none';
 
             if (results.length === 0) {
@@ -753,34 +513,20 @@
             });
 
             // Pagination
-            const totalPages = Math.ceil(totalCount / RESULTS_PER_PAGE);
-            const pagination = document.getElementById('pagination');
-
-            if (totalPages > 1) {
-                pagination.innerHTML = `
-                    <button onclick="goToPage(${currentPage - 1})" ${currentPage === 0 ? 'disabled' : ''}>← Previous</button>
-                    <span>Page ${currentPage + 1} of ${totalPages}</span>
-                    <button onclick="goToPage(${currentPage + 1})" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>Next →</button>
-                `;
-            } else {
-                pagination.innerHTML = '';
-            }
-
+            renderPagination(totalPages);
             document.getElementById('results-section').style.display = 'block';
         }
 
-        // Open plurk modal by plurk ID (look up base_id and posted from DB)
+        // Open plurk modal by plurk ID (look up base_id and posted from API)
         async function openPlurkByIdModal(plurkId) {
-            if (!db) return;
-
             try {
-                const result = db.exec(`SELECT base_id, posted FROM plurks WHERE id = ?`, [plurkId]);
-                if (result.length > 0 && result[0].values.length > 0) {
-                    const [baseId, posted] = result[0].values[0];
-                    await openPlurkModal(baseId, posted);
-                } else {
+                const response = await fetch(`/api/plurk/${plurkId}`);
+                if (!response.ok) {
                     alert('Plurk not found in database');
+                    return;
                 }
+                const data = await response.json();
+                await openPlurkModal(data.base_id, data.posted);
             } catch (error) {
                 console.error('Error looking up plurk:', error);
                 alert('Error looking up plurk: ' + error.message);
@@ -789,30 +535,21 @@
 
         // Open plurk modal by response ID (look up parent plurk and highlight response)
         async function openResponseByIdModal(responseId) {
-            if (!db) return;
-
             try {
-                // Get the response's base_id (parent plurk) and the parent plurk's posted date
-                const result = db.exec(`
-                    SELECT r.base_id, p.posted
-                    FROM responses r
-                    JOIN plurks p ON r.base_id = p.base_id
-                    WHERE r.id = ?
-                `, [responseId]);
-
-                if (result.length > 0 && result[0].values.length > 0) {
-                    const [baseId, posted] = result[0].values[0];
-                    await openPlurkModal(baseId, posted, responseId);
-                } else {
+                const response = await fetch(`/api/response/${responseId}/plurk`);
+                if (!response.ok) {
                     alert('Response not found in database');
+                    return;
                 }
+                const data = await response.json();
+                await openPlurkModal(data.base_id, data.posted, responseId);
             } catch (error) {
                 console.error('Error looking up response:', error);
                 alert('Error looking up response: ' + error.message);
             }
         }
 
-        function displayResults(results, totalCount) {
+        function displayResults(results, totalCount, totalPages) {
             document.getElementById('error-section').style.display = 'none';
 
             if (results.length === 0) {
@@ -858,7 +595,11 @@
             });
 
             // Pagination
-            const totalPages = Math.ceil(totalCount / RESULTS_PER_PAGE);
+            renderPagination(totalPages);
+            document.getElementById('results-section').style.display = 'block';
+        }
+
+        function renderPagination(totalPages) {
             const pagination = document.getElementById('pagination');
 
             if (totalPages > 1) {
@@ -870,17 +611,11 @@
             } else {
                 pagination.innerHTML = '';
             }
-
-            document.getElementById('results-section').style.display = 'block';
         }
 
         function goToPage(page) {
             currentPage = page;
-            if (currentSearchType === 'links') {
-                executeLinksSearch();
-            } else {
-                executeSearch();
-            }
+            executeSearch();
             window.scrollTo(0, 0);
         }
 
