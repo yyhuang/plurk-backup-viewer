@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 from links_cmd import (
+    PLURK_URL_PATTERN,
     create_link_metadata_table,
     extract_urls,
     is_image_content_type,
     is_image_url,
+    is_own_plurk_url,
     process_plurk_file,
     process_response_file,
     upsert_link,
@@ -394,6 +396,143 @@ class TestOGFetcherTitleFallback:
         )
         result = fetcher._fetch_once("https://example.com/photo")
         assert result.status == "image"
+
+
+class TestPlurkUrlPattern:
+    """Tests for Plurk URL pattern matching."""
+
+    def test_standard_plurk_url(self):
+        """Match standard plurk.com/p/ URL."""
+        match = PLURK_URL_PATTERN.match("https://www.plurk.com/p/3hjsoumvig")
+        assert match is not None
+        assert match.group(1) == "3hjsoumvig"
+
+    def test_mobile_plurk_url(self):
+        """Match mobile plurk.com/m/p/ URL."""
+        match = PLURK_URL_PATTERN.match("https://www.plurk.com/m/p/3hjsoumvig")
+        assert match is not None
+        assert match.group(1) == "3hjsoumvig"
+
+    def test_without_www(self):
+        """Match plurk.com without www prefix."""
+        match = PLURK_URL_PATTERN.match("https://plurk.com/p/abc123")
+        assert match is not None
+        assert match.group(1) == "abc123"
+
+    def test_http_scheme(self):
+        """Match http:// (not just https://)."""
+        match = PLURK_URL_PATTERN.match("http://www.plurk.com/p/abc123")
+        assert match is not None
+
+    def test_non_plurk_url(self):
+        """Don't match non-Plurk URLs."""
+        match = PLURK_URL_PATTERN.match("https://example.com/page")
+        assert match is None
+
+    def test_plurk_profile_url(self):
+        """Don't match Plurk profile URLs (no /p/ segment)."""
+        match = PLURK_URL_PATTERN.match("https://www.plurk.com/username")
+        assert match is None
+
+
+class TestIsOwnPlurkUrl:
+    """Tests for own-plurk URL detection."""
+
+    @pytest.fixture
+    def db_with_plurks(self):
+        """Create in-memory DB with plurks table and sample data."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("""
+            CREATE TABLE plurks (
+                id INTEGER PRIMARY KEY,
+                base_id TEXT,
+                content_raw TEXT,
+                posted TEXT,
+                response_count INTEGER,
+                qualifier TEXT
+            )
+        """)
+        # Insert a plurk with known ID
+        # "bsmqk" in base36 = 19811612 in decimal
+        conn.execute(
+            "INSERT INTO plurks (id, base_id, content_raw) VALUES (?, ?, ?)",
+            (19811612, "bsmqk", "Test content"),
+        )
+        return conn
+
+    def test_own_plurk_url_found(self, db_with_plurks):
+        """Detect URL pointing to own plurk."""
+        # 19811612 in base36 = "bsmqk"
+        assert is_own_plurk_url("https://www.plurk.com/p/bsmqk", db_with_plurks) is True
+
+    def test_own_plurk_mobile_url_found(self, db_with_plurks):
+        """Detect mobile URL pointing to own plurk."""
+        assert is_own_plurk_url("https://www.plurk.com/m/p/bsmqk", db_with_plurks) is True
+
+    def test_other_plurk_url_not_found(self, db_with_plurks):
+        """Don't match URL pointing to someone else's plurk."""
+        assert is_own_plurk_url("https://www.plurk.com/p/zzzzz", db_with_plurks) is False
+
+    def test_non_plurk_url(self, db_with_plurks):
+        """Return False for non-Plurk URLs."""
+        assert is_own_plurk_url("https://example.com/page", db_with_plurks) is False
+
+    def test_image_url_not_matched(self, db_with_plurks):
+        """Return False for image URLs."""
+        assert is_own_plurk_url("https://example.com/photo.jpg", db_with_plurks) is False
+
+
+class TestExtractSkipsOwnPlurks:
+    """Tests for skipping own-plurk URLs during extract/upsert."""
+
+    @pytest.fixture
+    def db_with_plurks(self):
+        """Create DB with plurks table and link_metadata table."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("""
+            CREATE TABLE plurks (
+                id INTEGER PRIMARY KEY,
+                base_id TEXT,
+                content_raw TEXT,
+                posted TEXT,
+                response_count INTEGER,
+                qualifier TEXT
+            )
+        """)
+        # "bsmqk" in base36 = 19811612
+        conn.execute(
+            "INSERT INTO plurks (id, base_id, content_raw) VALUES (?, ?, ?)",
+            (19811612, "bsmqk", "Test content"),
+        )
+        create_link_metadata_table(conn)
+        return conn
+
+    def test_own_plurk_url_not_inserted(self, db_with_plurks):
+        """Own-plurk URL should be filtered before upsert."""
+        url = "https://www.plurk.com/p/bsmqk"
+        sources = {"plurk_ids": [999], "response_ids": []}
+
+        # Simulate extract filtering logic
+        if not is_own_plurk_url(url, db_with_plurks):
+            upsert_link(db_with_plurks, url, sources)
+
+        row = db_with_plurks.execute(
+            "SELECT COUNT(*) FROM link_metadata WHERE url = ?", (url,)
+        ).fetchone()
+        assert row[0] == 0
+
+    def test_external_url_still_inserted(self, db_with_plurks):
+        """Non-own URLs should still be inserted."""
+        url = "https://example.com/article"
+        sources = {"plurk_ids": [999], "response_ids": []}
+
+        if not is_own_plurk_url(url, db_with_plurks):
+            upsert_link(db_with_plurks, url, sources)
+
+        row = db_with_plurks.execute(
+            "SELECT COUNT(*) FROM link_metadata WHERE url = ?", (url,)
+        ).fetchone()
+        assert row[0] == 1
 
 
 # Note: CLI tests for links_cmd.py were removed since the standalone CLI was

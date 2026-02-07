@@ -175,6 +175,28 @@ def extract_urls(content: str) -> list[str]:
     return URL_PATTERN.findall(content)
 
 
+# Plurk URL pattern - matches plurk.com/p/<base36_id> and plurk.com/m/p/<base36_id>
+PLURK_URL_PATTERN = re.compile(
+    r'https?://(?:www\.)?plurk\.com/(?:m/)?p/([a-z0-9]+)'
+)
+
+
+def is_own_plurk_url(url: str, conn: sqlite3.Connection) -> bool:
+    """Check if URL points to a plurk that exists in our database.
+
+    Plurk URLs use base36-encoded IDs (e.g., plurk.com/p/3hjsoumvig).
+    Converts to decimal and checks against the plurks table (PRIMARY KEY lookup).
+    """
+    match = PLURK_URL_PATTERN.match(url)
+    if not match:
+        return False
+    try:
+        plurk_id = int(match.group(1), 36)
+    except ValueError:
+        return False
+    return conn.execute("SELECT 1 FROM plurks WHERE id = ?", (plurk_id,)).fetchone() is not None
+
+
 # Image file extensions to detect
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'}
 
@@ -427,7 +449,11 @@ def cmd_extract(args) -> int:
     new_count = 0
     new_images = 0
     merged_count = 0
+    own_plurk_count = 0
     for url, sources in all_url_sources.items():
+        if is_own_plurk_url(url, conn):
+            own_plurk_count += 1
+            continue
         if upsert_link(conn, url, sources):
             new_count += 1
             if is_image_url(url):
@@ -439,7 +465,8 @@ def cmd_extract(args) -> int:
     conn.close()
 
     new_links = new_count - new_images
-    print(f"Database updated: {new_count} new ({new_links} links, {new_images} images), {merged_count} merged")
+    own_msg = f", {own_plurk_count} own-plurk skipped" if own_plurk_count else ""
+    print(f"Database updated: {new_count} new ({new_links} links, {new_images} images), {merged_count} merged{own_msg}")
 
     # Optionally fetch OG metadata
     if args.fetch_previews:
@@ -500,6 +527,20 @@ def cmd_fetch_previews_internal(
         return 0
 
     print(f"Fetching OG metadata for {len(pending_urls)} URLs...")
+
+    # Filter out own-plurk URLs (safety net - extract should skip these too)
+    own_plurk_urls = [url for url in pending_urls if is_own_plurk_url(url, conn)]
+    if own_plurk_urls:
+        for url in own_plurk_urls:
+            conn.execute("DELETE FROM link_metadata WHERE url = ?", (url,))
+        conn.commit()
+        pending_urls = [url for url in pending_urls if url not in set(own_plurk_urls)]
+        print(f"Skipped {len(own_plurk_urls)} own-plurk URL(s)")
+
+    if not pending_urls:
+        print("No pending URLs to fetch.")
+        conn.close()
+        return 0
 
     # Fetch OG metadata
     stats = {"success": 0, "no_og": 0, "image": 0, "timeout": 0, "failed": 0}
