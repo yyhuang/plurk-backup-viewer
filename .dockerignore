@@ -1,0 +1,35 @@
+# Backup data (mounted at runtime)
+ahbia-backup/
+*-backup/
+
+# Database and config (mounted at runtime)
+viewer/plurks.db
+viewer/config.json
+viewer/lib/*.dylib
+viewer/lib/*.so
+
+# Virtual environments
+.venv/
+tools/.venv/
+
+# Git
+.git/
+.gitignore
+
+# Tests
+tools/tests/
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentation
+*.md
+MOBILE.md
+ARCHITECTURE.md
+
+# Other
+og-fetcher/
+__pycache__/
+*.pyc

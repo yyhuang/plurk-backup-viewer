@@ -24,8 +24,13 @@ def load_icu_extension(conn: sqlite3.Connection, extension_path: str) -> None:
         conn: SQLite connection
         extension_path: Path to the .dylib/.so extension file
     """
+    # Strip file suffix — SQLite's load_extension() auto-appends the
+    # platform suffix (.so on Linux, .dylib on macOS), causing double
+    # extension errors like "libfts5_icu.so.so" if we pass the full path.
+    path = Path(extension_path)
+    entry_point = str(path.with_suffix(""))
     conn.enable_load_extension(True)
-    conn.load_extension(extension_path)
+    conn.load_extension(entry_point)
     conn.enable_load_extension(False)
 
 
@@ -34,8 +39,9 @@ def resolve_icu_extension(config: dict | None = None) -> str | None:
 
     Resolution order:
     1. config["icu_extension_path"] if present
-    2. viewer/lib/libfts5_icu.dylib (default location)
-    3. None (fall back to unicode61)
+    2. viewer/lib/libfts5_icu.{dylib,so} (default location)
+    3. /usr/local/lib/libfts5_icu.so (system, e.g. Docker)
+    4. None (fall back to unicode61)
 
     Args:
         config: Parsed config.json dict, or None
@@ -52,10 +58,21 @@ def resolve_icu_extension(config: dict | None = None) -> str | None:
         if Path(path).exists():
             return path
 
-    # Check default location
-    default_path = viewer_dir / "lib" / "libfts5_icu.dylib"
-    if default_path.exists():
-        return str(default_path)
+    # Check default location: only platform-compatible extension
+    # (avoids picking up macOS .dylib mounted into Linux container)
+    if sys.platform == "darwin":
+        names = ("libfts5_icu.dylib",)
+    else:
+        names = ("libfts5_icu.so",)
+    for name in names:
+        path = viewer_dir / "lib" / name
+        if path.exists():
+            return str(path)
+
+    # Check system lib (e.g. Docker image with baked-in libs)
+    system_path = Path("/usr/local/lib/libfts5_icu.so")
+    if system_path.exists():
+        return str(system_path)
 
     return None
 

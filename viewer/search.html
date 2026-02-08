@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Plurk Backup Search</title>
     <link href="static/backup.css" rel="stylesheet">
     <style>
@@ -27,6 +28,7 @@
             border: 1px solid #ccc;
             border-radius: 4px;
             margin-bottom: 15px;
+            box-sizing: border-box;
         }
 
         .filters {
@@ -254,6 +256,20 @@
             overflow-x: hidden;
             overflow-y: scroll;
         }
+
+        @media (max-width: 520px) {
+            #top-bar { display: none; }
+            .search-container { margin-top: 10px; padding: 0 20px; }
+            .search-box { box-shadow: none; border: 1px solid #ddd; }
+            .stats { font-size: 13px; padding: 8px 12px; }
+            .stats .stat-line { display: block; }
+            .search-box { padding: 12px; }
+            .search-input { padding: 10px; font-size: 15px; margin-bottom: 10px; }
+            .filters { flex-direction: column; gap: 10px; }
+            .filter-group { width: 100%; }
+            .filter-group select { width: 100%; }
+            .search-btn { width: 100%; }
+        }
     </style>
     <script>
         // Initialize BackupData before loading data files
@@ -352,12 +368,13 @@
 
                 let linkStats = '';
                 if (stats.link_count > 0) {
-                    linkStats = `, ${stats.link_count.toLocaleString()} links (${stats.link_with_og.toLocaleString()} with OG)`;
+                    linkStats = `<span class="stat-line">${stats.link_count.toLocaleString()} links (${stats.link_with_og.toLocaleString()} with OG)</span>`;
                 }
 
                 document.getElementById('search-stats').innerHTML = `
-                    <strong>Database loaded:</strong> ${stats.plurk_count.toLocaleString()} plurks, ${stats.response_count.toLocaleString()} responses${linkStats}
-                    | <strong>User:</strong> ${BackupData.user.display_name} (@${BackupData.user.nick_name})
+                    <span class="stat-line"><strong>${BackupData.user.display_name}</strong> (@${BackupData.user.nick_name})</span>
+                    <span class="stat-line">${stats.plurk_count.toLocaleString()} plurks, ${stats.response_count.toLocaleString()} responses</span>
+                    ${linkStats}
                 `;
                 document.getElementById('stats-section').style.display = 'block';
                 document.getElementById('loading-section').style.display = 'none';
@@ -526,6 +543,11 @@
                     return;
                 }
                 const data = await response.json();
+                // On mobile, open plurk.com instead of modal
+                if (window.innerWidth <= 520) {
+                    window.open('https://www.plurk.com/p/' + data.base_id, '_blank');
+                    return;
+                }
                 await openPlurkModal(data.base_id, data.posted);
             } catch (error) {
                 console.error('Error looking up plurk:', error);
@@ -542,6 +564,11 @@
                     return;
                 }
                 const data = await response.json();
+                // On mobile, open plurk.com instead of modal
+                if (window.innerWidth <= 520) {
+                    window.open('https://www.plurk.com/p/' + data.base_id, '_blank');
+                    return;
+                }
                 await openPlurkModal(data.base_id, data.posted, responseId);
             } catch (error) {
                 console.error('Error looking up response:', error);
@@ -809,6 +836,11 @@
 
         // Open plurk in modal (optionally highlight a specific response)
         async function openPlurkModal(baseId, postedStr, highlightResponseId) {
+            // On mobile, open plurk.com instead of modal
+            if (window.innerWidth <= 520) {
+                window.open('https://www.plurk.com/p/' + baseId, '_blank');
+                return;
+            }
             const plurkHolder = document.getElementById('popplurk-plurk-holder');
             const responsesHolder = document.getElementById('popplurk-responses-holder');
             const popup = document.getElementById('popplurk');

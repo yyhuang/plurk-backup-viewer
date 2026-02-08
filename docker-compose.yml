@@ -1,0 +1,12 @@
+services:
+  plurk-viewer:
+    platform: linux/amd64
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    volumes:
+      - ./viewer/:/app/viewer/:ro
+      - ./docker/config.docker.json:/app/viewer/config.json:ro
+      - ${BACKUP_PATH:-.}/:/data/backup/:ro
