@@ -17,6 +17,7 @@ from pathlib import Path
 # Paths relative to this file
 TOOL_ROOT = Path(__file__).parent.parent
 VIEWER_DIR = TOOL_ROOT / "viewer"
+DATA_DIR = TOOL_ROOT / "data"
 
 
 def patch_index_html(backup_path: Path) -> bool:
@@ -66,7 +67,7 @@ def patch_index_html(backup_path: Path) -> bool:
 def cmd_patch() -> int:
     """Run the patch command."""
     # Load config to find backup path
-    config_file = VIEWER_DIR / "config.json"
+    config_file = DATA_DIR / "config.json"
     if not config_file.exists():
         print(f"Error: {config_file} not found", file=sys.stderr)
         print("Run 'plurk-tools init <backup_path>' first", file=sys.stderr)

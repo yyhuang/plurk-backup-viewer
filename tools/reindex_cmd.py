@@ -14,6 +14,7 @@ from database import create_schema, load_icu_extension, resolve_icu_extension
 
 TOOL_ROOT = Path(__file__).parent.parent
 VIEWER_DIR = TOOL_ROOT / "viewer"
+DATA_DIR = TOOL_ROOT / "data"
 
 
 def rebuild_fts(conn: sqlite3.Connection, tokenizer: str) -> dict:
@@ -117,8 +118,8 @@ def cmd_reindex() -> int:
     Returns:
         Exit code (0 for success)
     """
-    db_path = VIEWER_DIR / "plurks.db"
-    config_path = VIEWER_DIR / "config.json"
+    db_path = DATA_DIR / "plurks.db"
+    config_path = DATA_DIR / "config.json"
 
     if not db_path.exists():
         print("Error: Database not found. Run 'plurk-tools init' first.", file=sys.stderr)

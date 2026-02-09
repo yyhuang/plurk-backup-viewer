@@ -30,6 +30,6 @@ RUN chmod +x /app/entrypoint.sh
 # viewer/ → /app/viewer/
 # backup → /data/backup/
 
-EXPOSE 8000
+EXPOSE 8000 8001
 
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -27,25 +27,26 @@ from utils import (
 # Paths relative to this file
 TOOL_ROOT = Path(__file__).parent.parent
 VIEWER_DIR = TOOL_ROOT / "viewer"
+DATA_DIR = TOOL_ROOT / "data"
 
 
 def load_config() -> dict:
-    """Load config.json from viewer directory."""
-    config_path = VIEWER_DIR / "config.json"
+    """Load config.json from data directory."""
+    config_path = DATA_DIR / "config.json"
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     return json.loads(config_path.read_text())
 
 
 def resolve_paths() -> tuple[Path, Path]:
-    """Resolve backup_path and database path from viewer config.
+    """Resolve backup_path and database path from config.
 
     Returns:
         Tuple of (backup_path, database_path)
     """
     config = load_config()
     backup_path = Path(config["backup_path"])
-    database = VIEWER_DIR / "plurks.db"
+    database = DATA_DIR / "plurks.db"
     return backup_path, database
 
 # URL regex pattern - matches http:// and https:// URLs

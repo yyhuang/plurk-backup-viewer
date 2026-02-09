@@ -11,13 +11,31 @@ Enhanced viewer for Plurk backup data with full-text search capabilities.
 - **Link search** with Open Graph metadata (search by URL, title, description)
 - **Modal popups** to view plurk details and responses
 - **Incremental import** - add new backup exports without rebuilding
-
-## Prerequisites
-
-- Python 3.11+
-- [uv](https://github.com/astral-sh/uv) (Python package manager)
+- **Web admin interface** - upload backup, initialize database, and manage link metadata from browser
 
 ## Quick Start
+
+### Option A: Docker (recommended)
+
+No Python setup required. Includes web admin for uploading backups.
+
+```bash
+# 1. Clone and start
+git clone https://github.com/user/plurk-backup-viewer
+cd plurk-backup-viewer
+docker compose up
+
+# 2. Open admin interface
+open http://localhost:8001
+
+# 3. Upload your backup .zip and click "Build Database"
+# 4. (Optional) Extract and fetch link metadata from the admin page
+# 5. Search is live at http://localhost:8000
+```
+
+### Option B: Local Setup
+
+Prerequisites: Python 3.11+, [uv](https://github.com/astral-sh/uv)
 
 ```bash
 # 1. Extract your Plurk backup
@@ -50,10 +68,12 @@ uv run plurk-tools patch
 │   ├── static/
 │   └── data/
 │
-└── plurk-backup-viewer/       # This repo (keep for serving)
-    ├── viewer/             # HTML + database
+└── plurk-backup-viewer/       # This repo
+    ├── viewer/             # HTML templates (static assets)
     │   ├── landing.html    # Enhanced landing page
     │   ├── search.html     # Search interface
+    │   └── admin.html      # Admin interface
+    ├── data/               # User data (auto-created)
     │   ├── plurks.db       # Search database
     │   └── config.json     # Points to backup
     └── tools/              # CLI tools
@@ -70,8 +90,8 @@ uv run plurk-tools init <backup_path>
 ```
 
 Creates:
-- `viewer/plurks.db` - SQLite database with all plurks and responses
-- `viewer/config.json` - Points to your backup directory
+- `data/plurks.db` - SQLite database with all plurks and responses
+- `data/config.json` - Points to your backup directory
 
 ### Start Server
 
@@ -79,7 +99,7 @@ Creates:
 uv run plurk-tools serve [--port 8000]
 ```
 
-Starts a local server that serves both the enhanced viewer and your backup data.
+Starts a local server that serves both the enhanced viewer and your backup data. Admin interface is available at `http://localhost:8001` by default. Use `--admin-port 0` to disable.
 
 ### Patch Original Viewer (Optional)
 
@@ -104,6 +124,26 @@ uv run plurk-tools links fetch --limit 100
 uv run plurk-tools links status
 ```
 
+## Docker Setup
+
+The Docker setup runs a single container with the search server (port 8000) and admin interface (port 8001).
+
+```bash
+# Build and start
+docker compose up
+
+# With Cloudflare Tunnel (optional)
+TUNNEL_TOKEN=your-token docker compose up
+```
+
+**Volumes:**
+- `viewer/` is mounted read-only (static HTML templates)
+- `data/` is mounted read-write (database, config, uploaded backups)
+
+**Ports:**
+- `8000` - Search interface (can be tunneled)
+- `8001` - Admin interface (local only)
+
 ## Updating Your Backup
 
 When you export a new backup from Plurk:
@@ -119,6 +159,8 @@ uv run plurk-tools init ../username-backup
 # Re-run patch (new extraction overwrites index.html)
 uv run plurk-tools patch
 ```
+
+For Docker: use the admin interface to re-upload and re-initialize.
 
 ## CJK Search (Optional)
 
@@ -139,11 +181,14 @@ The extension is auto-detected from `viewer/lib/` by both `init` and `reindex`.
 | `unicode61` (default) | Character-level tokenization, works for most searches |
 | `icu` (with extension) | Proper word segmentation for Chinese, Japanese, Korean |
 
+The Docker image includes the ICU extension pre-built.
+
 ## How It Works
 
-- **Database**: SQLite with FTS5 full-text search index
+- **Database**: SQLite with FTS5 full-text search index, stored in `data/`
 - **Dual-directory routing**: Server combines viewer files with your backup data
 - **Minimal modifications**: Only `patch` command modifies `index.html`, other backup files are untouched
+- **Admin interface**: Web-based setup (upload zip, build database, extract/fetch link metadata)
 
 ## License
 

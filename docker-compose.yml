@@ -4,9 +4,9 @@ services:
     build: .
     ports:
       - "8000:8000"
+      - "8001:8001"
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     volumes:
       - ./viewer/:/app/viewer/:ro
-      - ./docker/config.docker.json:/app/viewer/config.json:ro
-      - ${BACKUP_PATH:-.}/:/data/backup/:ro
+      - ./data/:/app/data/

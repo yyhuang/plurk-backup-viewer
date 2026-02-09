@@ -2,9 +2,10 @@
 # Docker smoke tests for plurk-viewer container
 # Usage: ./docker/test.sh
 #
-# Expects container running on localhost:8000
+# Expects container running on localhost:8000 (search) and localhost:8001 (admin)
 
 BASE_URL="http://localhost:8000"
+ADMIN_URL="http://localhost:8001"
 PASS=0
 FAIL=0
 
@@ -80,6 +81,20 @@ check_output "search.html loads" "200" \
 echo "[Lookup]"
 check_output "/api/plurk returns base_id or not found" 'base_id\|error' \
     curl -s "$BASE_URL/api/plurk/1"
+
+# 7. Admin interface
+echo "[Admin]"
+check_output "admin port responds" "200" \
+    curl -s -o /dev/null -w '%{http_code}' "$ADMIN_URL/"
+
+check_output "admin.html loads" "200" \
+    curl -s -o /dev/null -w '%{http_code}' "$ADMIN_URL/admin.html"
+
+check_output "/api/admin/info returns backup_exists" "backup_exists" \
+    curl -sf "$ADMIN_URL/api/admin/info"
+
+check_output "/api/admin/status returns status" '"status"' \
+    curl -sf "$ADMIN_URL/api/admin/status"
 
 # Summary
 echo ""

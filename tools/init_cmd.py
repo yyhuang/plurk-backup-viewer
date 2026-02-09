@@ -30,16 +30,29 @@ from utils import (
 # Paths relative to this file
 TOOL_ROOT = Path(__file__).parent.parent
 VIEWER_DIR = TOOL_ROOT / "viewer"
+DATA_DIR = TOOL_ROOT / "data"
 
 
-def create_config(backup_path: Path, icu_extension_path: str | None = None) -> None:
-    """Create config.json in viewer directory."""
+def create_config(
+    backup_path: Path,
+    icu_extension_path: str | None = None,
+    config_dir: Path | None = None,
+) -> None:
+    """Create config.json in the data directory.
+
+    Args:
+        backup_path: Path to backup directory
+        icu_extension_path: Optional path to ICU tokenizer extension
+        config_dir: Directory to write config.json (defaults to DATA_DIR)
+    """
+    config_dir = config_dir or DATA_DIR
+    config_dir.mkdir(parents=True, exist_ok=True)
     config: dict = {
         "backup_path": str(backup_path.resolve()),
     }
     if icu_extension_path:
         config["icu_extension_path"] = icu_extension_path
-    config_path = VIEWER_DIR / "config.json"
+    config_path = config_dir / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
 
 
@@ -153,7 +166,7 @@ def cmd_init(backup_path: Path, icu_extension: str | None = None) -> int:
             print("  For better CJK search, place libfts5_icu.dylib in viewer/lib/")
 
     print(f"Backup: {backup_path}")
-    print(f"Viewer: {VIEWER_DIR}")
+    print(f"Data:   {DATA_DIR}")
     print()
 
     # Step 1: Create config.json
@@ -162,7 +175,7 @@ def cmd_init(backup_path: Path, icu_extension: str | None = None) -> int:
 
     # Step 2: Build database
     print("Building database...")
-    db_path = VIEWER_DIR / "plurks.db"
+    db_path = DATA_DIR / "plurks.db"
     plurk_count, response_count = build_database(backup_path, db_path, icu_path)
 
     print()

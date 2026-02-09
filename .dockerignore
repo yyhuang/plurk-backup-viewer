@@ -2,9 +2,8 @@
 ahbia-backup/
 *-backup/
 
-# Database and config (mounted at runtime)
-viewer/plurks.db
-viewer/config.json
+# User data (mounted at runtime)
+data/
 viewer/lib/*.dylib
 viewer/lib/*.so
 

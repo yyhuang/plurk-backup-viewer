@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plurk Backup Admin</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        .header {
+            background: #cf682f;
+            color: #fff;
+            padding: 16px 24px;
+            font-size: 20px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .back-link {
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: normal;
+            opacity: 0.9;
+            white-space: nowrap;
+        }
+        .back-link:hover { opacity: 1; text-decoration: underline; }
+        .container {
+            max-width: 800px;
+            margin: 24px auto;
+            padding: 0 16px;
+        }
+        .card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            font-size: 16px;
+            margin-bottom: 12px;
+            color: #444;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .status-item .label { color: #666; }
+        .status-item .value { font-weight: bold; }
+        .status-item .value.ok { color: #2e7d32; }
+        .status-item .value.missing { color: #c62828; }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+        }
+        .upload-area.dragover { border-color: #cf682f; background: #fff8f4; }
+        .upload-area input[type="file"] { display: none; }
+        .upload-area label {
+            cursor: pointer;
+            color: #cf682f;
+            font-weight: bold;
+        }
+        .upload-area label:hover { text-decoration: underline; }
+        .file-name {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+        button {
+            padding: 10px 24px;
+            font-size: 14px;
+            font-weight: bold;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button.primary {
+            background: #cf682f;
+            color: #fff;
+        }
+        button.primary:hover { background: #b55a27; }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .btn-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .btn-status {
+            font-size: 13px;
+            color: #666;
+        }
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 12px;
+            border-radius: 6px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log-area .error { color: #f44336; }
+        .log-area .success { color: #4caf50; }
+        .progress-bar {
+            height: 4px;
+            background: #eee;
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            background: #cf682f;
+            transition: width 0.3s;
+        }
+        .progress-bar.indeterminate .fill {
+            width: 30%;
+            animation: indeterminate 1.5s infinite;
+        }
+        @keyframes indeterminate {
+            0% { margin-left: -30%; }
+            100% { margin-left: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a id="back-link" class="back-link">← Home</a>
+        Plurk Backup Admin
+    </div>
+    <div class="container">
+        <div class="card" id="status-card">
+            <h2>System Status</h2>
+            <div class="status-grid" id="status-grid">
+                <div class="status-item">
+                    <span class="label">Backup</span>
+                    <span class="value" id="st-backup">checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Database</span>
+                    <span class="value" id="st-db">checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">ICU Tokenizer</span>
+                    <span class="value" id="st-icu">checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Records</span>
+                    <span class="value" id="st-records">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Links</span>
+                    <span class="value" id="st-links">-</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Upload Backup</h2>
+            <div class="upload-area" id="drop-zone">
+                <p><label for="file-input">Choose a .zip file</label> or drag and drop</p>
+                <input type="file" id="file-input" accept=".zip">
+                <div class="file-name" id="file-name"></div>
+            </div>
+            <div class="btn-row">
+                <button class="primary" id="upload-btn" disabled>Upload</button>
+                <span class="btn-status" id="upload-status"></span>
+            </div>
+            <div class="progress-bar" id="upload-progress"><div class="fill"></div></div>
+        </div>
+
+        <div class="card">
+            <h2>Initialize Database</h2>
+            <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
+                Build the search database from the uploaded backup. This may take a minute.
+            </p>
+            <div class="btn-row">
+                <button class="primary" id="init-btn" disabled>Build Database</button>
+                <span class="btn-status" id="init-status"></span>
+            </div>
+            <div class="progress-bar" id="init-progress"><div class="fill"></div></div>
+        </div>
+
+        <div class="card">
+            <h2>Extract Links</h2>
+            <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
+                Extract URLs from plurks and responses for a given month range.
+            </p>
+            <div style="display: flex; gap: 12px; align-items: end; margin-bottom: 12px; flex-wrap: wrap;">
+                <div>
+                    <label style="font-size: 13px; color: #666; display: block; margin-bottom: 4px;">Start Month</label>
+                    <input type="month" id="extract-start" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+                </div>
+                <div>
+                    <label style="font-size: 13px; color: #666; display: block; margin-bottom: 4px;">End Month</label>
+                    <input type="month" id="extract-end" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+                </div>
+            </div>
+            <div class="btn-row">
+                <button class="primary" id="extract-btn" disabled>Extract</button>
+                <span class="btn-status" id="extract-status"></span>
+            </div>
+            <div class="progress-bar" id="extract-progress"><div class="fill"></div></div>
+        </div>
+
+        <div class="card">
+            <h2>Fetch Link Metadata</h2>
+            <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
+                Fetch OG metadata (title, description) for pending links using a headless browser.
+            </p>
+            <div style="display: flex; gap: 12px; align-items: end; margin-bottom: 12px;">
+                <div>
+                    <label style="font-size: 13px; color: #666; display: block; margin-bottom: 4px;">Limit (0 = all pending)</label>
+                    <input type="number" id="fetch-limit" value="0" min="0" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 100px;">
+                </div>
+            </div>
+            <div class="btn-row">
+                <button class="primary" id="fetch-btn" disabled>Fetch</button>
+                <span class="btn-status" id="fetch-status"></span>
+            </div>
+            <div class="progress-bar" id="fetch-progress"><div class="fill"></div></div>
+        </div>
+
+        <div class="card">
+            <h2>Log</h2>
+            <div class="log-area" id="log-area">Waiting...</div>
+        </div>
+    </div>
+
+<script>
+(function() {
+    const $ = id => document.getElementById(id);
+
+    // Elements
+    const dropZone = $('drop-zone');
+    const fileInput = $('file-input');
+    const fileName = $('file-name');
+    const uploadBtn = $('upload-btn');
+    const uploadStatus = $('upload-status');
+    const uploadProgress = $('upload-progress');
+    const initBtn = $('init-btn');
+    const initStatus = $('init-status');
+    const initProgress = $('init-progress');
+    const logArea = $('log-area');
+    const extractBtn = $('extract-btn');
+    const extractStatus = $('extract-status');
+    const extractProgress = $('extract-progress');
+    const extractStart = $('extract-start');
+    const extractEnd = $('extract-end');
+    const fetchBtn = $('fetch-btn');
+    const fetchStatus = $('fetch-status');
+    const fetchProgress = $('fetch-progress');
+    const fetchLimitInput = $('fetch-limit');
+
+    let selectedFile = null;
+    let polling = false;
+    let lastLogLength = 0;
+
+    // Set back link to main server
+    $('back-link').href = 'http://' + location.hostname + ':8000/landing.html';
+
+    // --- Status ---
+    async function refreshInfo() {
+        try {
+            const res = await fetch('/api/admin/info');
+            const info = await res.json();
+
+            const stBackup = $('st-backup');
+            stBackup.textContent = info.backup_exists ? 'Found' : 'Not found';
+            stBackup.className = 'value ' + (info.backup_exists ? 'ok' : 'missing');
+
+            const stDb = $('st-db');
+            stDb.textContent = info.db_exists ? 'Ready' : 'Not built';
+            stDb.className = 'value ' + (info.db_exists ? 'ok' : 'missing');
+
+            const stIcu = $('st-icu');
+            stIcu.textContent = info.icu_available ? 'Available' : 'Not found';
+            stIcu.className = 'value ' + (info.icu_available ? 'ok' : 'missing');
+
+            const stRecords = $('st-records');
+            if (info.db_exists && info.plurk_count !== undefined) {
+                stRecords.textContent = info.plurk_count.toLocaleString() + ' plurks, ' +
+                                        info.response_count.toLocaleString() + ' responses';
+                stRecords.className = 'value ok';
+            } else {
+                stRecords.textContent = '-';
+                stRecords.className = 'value';
+            }
+
+            const stLinks = $('st-links');
+            if (info.db_exists && info.link_total !== undefined && info.link_total > 0) {
+                stLinks.textContent = info.link_total.toLocaleString() + ' total (' +
+                                      info.link_pending.toLocaleString() + ' pending)';
+                stLinks.className = 'value ok';
+            } else if (info.db_exists) {
+                stLinks.textContent = 'Not extracted';
+                stLinks.className = 'value';
+            } else {
+                stLinks.textContent = '-';
+                stLinks.className = 'value';
+            }
+
+            // Enable init button if backup exists
+            initBtn.disabled = !info.backup_exists || polling;
+            // Enable extract/fetch buttons if DB exists and no task running
+            extractBtn.disabled = !info.db_exists || polling;
+            fetchBtn.disabled = !info.db_exists || polling;
+        } catch (e) {
+            console.error('Failed to fetch info:', e);
+        }
+    }
+
+    // --- File selection ---
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            selectedFile = this.files[0];
+            fileName.textContent = selectedFile.name + ' (' + (selectedFile.size / 1024 / 1024).toFixed(1) + ' MB)';
+            uploadBtn.disabled = false;
+        }
+    });
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', function() {
+        dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            const file = e.dataTransfer.files[0];
+            if (file.name.endsWith('.zip')) {
+                selectedFile = file;
+                fileInput.files = e.dataTransfer.files;
+                fileName.textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+                uploadBtn.disabled = false;
+            } else {
+                fileName.textContent = 'Please select a .zip file';
+            }
+        }
+    });
+
+    // --- Upload ---
+    uploadBtn.addEventListener('click', async function() {
+        if (!selectedFile) return;
+
+        disableAllButtons();
+        uploadStatus.textContent = 'Uploading...';
+        uploadProgress.style.display = 'block';
+        uploadProgress.classList.add('indeterminate');
+        lastLogLength = 0;
+        logArea.textContent = '';
+
+        try {
+            const res = await fetch('/api/admin/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/zip' },
+                body: selectedFile,
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                uploadStatus.textContent = 'Error: ' + data.error;
+                uploadProgress.style.display = 'none';
+                uploadBtn.disabled = false;
+                return;
+            }
+
+            // Start polling
+            startPolling('upload');
+        } catch (e) {
+            uploadStatus.textContent = 'Upload failed: ' + e.message;
+            uploadProgress.style.display = 'none';
+            uploadBtn.disabled = false;
+        }
+    });
+
+    // --- Init ---
+    initBtn.addEventListener('click', async function() {
+        disableAllButtons();
+        initStatus.textContent = 'Initializing...';
+        initProgress.style.display = 'block';
+        initProgress.classList.add('indeterminate');
+        lastLogLength = 0;
+        logArea.textContent = '';
+
+        try {
+            const res = await fetch('/api/admin/init', { method: 'POST' });
+            const data = await res.json();
+
+            if (data.error) {
+                initStatus.textContent = 'Error: ' + data.error;
+                initProgress.style.display = 'none';
+                initBtn.disabled = false;
+                return;
+            }
+
+            startPolling('init');
+        } catch (e) {
+            initStatus.textContent = 'Failed: ' + e.message;
+            initProgress.style.display = 'none';
+            initBtn.disabled = false;
+        }
+    });
+
+    // --- Extract Links ---
+    extractBtn.addEventListener('click', async function() {
+        const startVal = extractStart.value; // YYYY-MM
+        const endVal = extractEnd.value;
+        if (!startVal || !endVal) {
+            extractStatus.textContent = 'Please select start and end months';
+            return;
+        }
+        if (startVal > endVal) {
+            extractStatus.textContent = 'Start month must be before end month';
+            return;
+        }
+
+        // Convert YYYY-MM to YYYYMM
+        const startMonth = startVal.replace('-', '');
+        const endMonth = endVal.replace('-', '');
+
+        disableAllButtons();
+        extractStatus.textContent = 'Extracting...';
+        extractProgress.style.display = 'block';
+        extractProgress.classList.add('indeterminate');
+        lastLogLength = 0;
+        logArea.textContent = '';
+
+        try {
+            const res = await fetch('/api/admin/links/extract', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start_month: startMonth, end_month: endMonth }),
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                extractStatus.textContent = 'Error: ' + data.error;
+                extractProgress.style.display = 'none';
+                refreshInfo();
+                return;
+            }
+
+            startPolling('extract');
+        } catch (e) {
+            extractStatus.textContent = 'Failed: ' + e.message;
+            extractProgress.style.display = 'none';
+            refreshInfo();
+        }
+    });
+
+    // --- Fetch Links ---
+    fetchBtn.addEventListener('click', async function() {
+        const limit = parseInt(fetchLimitInput.value) || 0;
+
+        disableAllButtons();
+        fetchStatus.textContent = 'Fetching...';
+        fetchProgress.style.display = 'block';
+        fetchProgress.classList.add('indeterminate');
+        lastLogLength = 0;
+        logArea.textContent = '';
+
+        try {
+            const res = await fetch('/api/admin/links/fetch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ limit: limit }),
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                fetchStatus.textContent = 'Error: ' + data.error;
+                fetchProgress.style.display = 'none';
+                refreshInfo();
+                return;
+            }
+
+            startPolling('fetch');
+        } catch (e) {
+            fetchStatus.textContent = 'Failed: ' + e.message;
+            fetchProgress.style.display = 'none';
+            refreshInfo();
+        }
+    });
+
+    function disableAllButtons() {
+        uploadBtn.disabled = true;
+        initBtn.disabled = true;
+        extractBtn.disabled = true;
+        fetchBtn.disabled = true;
+    }
+
+    // --- Polling ---
+    function startPolling(taskType) {
+        polling = true;
+        pollStatus(taskType);
+    }
+
+    async function pollStatus(taskType) {
+        if (!polling) return;
+
+        try {
+            const res = await fetch('/api/admin/status');
+            const status = await res.json();
+
+            // Update log
+            if (status.log && status.log.length > lastLogLength) {
+                const newLines = status.log.slice(lastLogLength);
+                for (const line of newLines) {
+                    appendLog(line, status.status === 'error' && line === status.error);
+                }
+                lastLogLength = status.log.length;
+            }
+
+            // Update status text
+            const statusMap = { upload: [uploadStatus, uploadProgress],
+                                init: [initStatus, initProgress],
+                                extract: [extractStatus, extractProgress],
+                                fetch: [fetchStatus, fetchProgress] };
+            const [statusEl, progressEl] = statusMap[taskType] || statusMap.init;
+
+            if (status.progress) {
+                statusEl.textContent = status.progress;
+            }
+
+            if (status.status === 'done' || status.status === 'error') {
+                polling = false;
+                progressEl.style.display = 'none';
+                progressEl.classList.remove('indeterminate');
+
+                if (status.status === 'done') {
+                    statusEl.textContent = 'Complete!';
+                } else {
+                    statusEl.textContent = 'Failed';
+                }
+
+                refreshInfo();
+                return;
+            }
+        } catch (e) {
+            console.error('Poll error:', e);
+        }
+
+        setTimeout(() => pollStatus(taskType), 1500);
+    }
+
+    function appendLog(text, isError) {
+        const span = document.createElement('span');
+        span.textContent = text + '\n';
+        if (isError) span.className = 'error';
+        if (text.includes('complete') || text.includes('Complete') || text.includes('successfully')) {
+            span.className = 'success';
+        }
+        logArea.appendChild(span);
+        logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    // --- Init ---
+    refreshInfo();
+})();
+</script>
+</body>
+</html>

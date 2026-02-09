@@ -24,6 +24,6 @@ else
     echo "TUNNEL_TOKEN not set, skipping cloudflared (local dev mode)"
 fi
 
-# Start plurk-tools serve in foreground
+# Start plurk-tools serve in foreground (admin on :8001 by default)
 cd /app/tools
 exec uv run plurk-tools serve --port 8000

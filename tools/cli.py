@@ -71,6 +71,12 @@ Examples:
         default=8000,
         help="Port number (default: 8000)",
     )
+    serve_parser.add_argument(
+        "--admin-port",
+        type=int,
+        default=8001,
+        help="Admin interface port (default: 8001, 0 to disable)",
+    )
 
     # ========== patch command ==========
     subparsers.add_parser(
@@ -152,7 +158,7 @@ Examples:
     elif args.command == "serve":
         from serve_cmd import cmd_serve
 
-        return cmd_serve(args.port)
+        return cmd_serve(args.port, admin_port=args.admin_port)
 
     elif args.command == "patch":
         from patch_cmd import cmd_patch

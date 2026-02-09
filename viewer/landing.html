@@ -62,6 +62,10 @@
         .nav-card.search {
             border-left: 4px solid #E8AF37;
         }
+
+        .nav-card.admin {
+            border-left: 4px solid #cf682f;
+        }
     </style>
     <script>
         BackupData = { info: {}, user: {}, indexes: {}, plurks: {}, responses: {} };
@@ -101,6 +105,11 @@
                 <h3>Search Archive</h3>
                 <p>Full-text search across all plurks and responses.</p>
             </a>
+            <a id="admin-link" class="nav-card admin">
+                <div class="nav-card-icon">⚙️</div>
+                <h3>Admin</h3>
+                <p>Upload backup, build database, and manage link metadata.</p>
+            </a>
         </div>
     </div>
 
@@ -137,6 +146,10 @@
         }
 
         initProfile();
+
+        // Set admin link to port 8001
+        document.getElementById('admin-link').href =
+            'http://' + location.hostname + ':8001';
     </script>
 </body>
 </html>
