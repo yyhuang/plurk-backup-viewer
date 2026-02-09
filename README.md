@@ -11,7 +11,7 @@ Enhanced viewer for Plurk backup data with full-text search capabilities.
 - **Link search** with Open Graph metadata (search by URL, title, description)
 - **Modal popups** to view plurk details and responses
 - **Incremental import** - add new backup exports without rebuilding
-- **Web admin interface** - upload backup, initialize database, and manage link metadata from browser
+- **Web admin interface** - upload backup, build database, and fetch link metadata from browser
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ docker compose up
 open http://localhost:8001
 
 # 3. Upload your backup .zip and click "Build Database"
-# 4. (Optional) Extract and fetch link metadata from the admin page
+# 4. (Optional) Fetch link metadata to make shared links searchable
 # 5. Search is live at http://localhost:8000
 ```
 
@@ -83,7 +83,7 @@ uv run plurk-tools patch
 
 All commands are run from the `tools/` directory.
 
-### Initialize Database
+### Build Database
 
 ```bash
 uv run plurk-tools init <backup_path>
@@ -188,7 +188,7 @@ The Docker image includes the ICU extension pre-built.
 - **Database**: SQLite with FTS5 full-text search index, stored in `data/`
 - **Dual-directory routing**: Server combines viewer files with your backup data
 - **Minimal modifications**: Only `patch` command modifies `index.html`, other backup files are untouched
-- **Admin interface**: Web-based setup (upload zip, build database, extract/fetch link metadata)
+- **Admin interface**: Web-based setup with two-column layout (upload zip, build database, fetch link metadata)
 
 ## License
 

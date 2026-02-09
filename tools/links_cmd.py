@@ -10,6 +10,7 @@ import json
 import re
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -389,19 +390,94 @@ def update_og_metadata(conn: sqlite3.Connection, result: OGResult) -> None:
     )
 
 
+# ============== Reusable Extraction ==============
+
+
+def extract_links_from_files(
+    plurk_files: list[Path],
+    response_files: list[Path],
+    db_path: Path,
+    tokenizer: str = "unicode61",
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict:
+    """Extract URLs from given file lists and upsert into link_metadata.
+
+    Reusable by init, CLI extract, and admin extract.
+
+    Args:
+        plurk_files: Plurk data files to process
+        response_files: Response data files to process
+        db_path: Path to SQLite database
+        tokenizer: FTS5 tokenizer name for link_metadata_fts
+        progress_callback: Optional callback(message) for progress reporting
+
+    Returns:
+        Dict with keys: new_count, merged_count, own_plurk_count, image_count, total_urls
+    """
+    def log(msg: str) -> None:
+        if progress_callback:
+            progress_callback(msg)
+
+    log(f"Processing {len(plurk_files)} plurk file(s)...")
+    all_url_sources: dict[str, dict] = {}
+    for f in plurk_files:
+        url_sources = process_plurk_file(f)
+        merge_url_sources(all_url_sources, url_sources)
+
+    log(f"Processing {len(response_files)} response file(s)...")
+    for f in response_files:
+        url_sources = process_response_file(f)
+        merge_url_sources(all_url_sources, url_sources)
+
+    image_count = sum(1 for url in all_url_sources if is_image_url(url))
+    link_count = len(all_url_sources) - image_count
+    log(f"Found {len(all_url_sources)} unique URLs ({link_count} links, {image_count} images)")
+
+    conn = sqlite3.connect(str(db_path))
+    create_link_metadata_table(conn, tokenizer)
+
+    new_count = 0
+    merged_count = 0
+    own_plurk_count = 0
+    for url, sources in all_url_sources.items():
+        if is_own_plurk_url(url, conn):
+            own_plurk_count += 1
+            continue
+        if upsert_link(conn, url, sources):
+            new_count += 1
+        else:
+            merged_count += 1
+
+    conn.commit()
+    conn.close()
+
+    log(f"Database updated: {new_count} new, {merged_count} merged")
+
+    return {
+        "new_count": new_count,
+        "merged_count": merged_count,
+        "own_plurk_count": own_plurk_count,
+        "image_count": image_count,
+        "total_urls": len(all_url_sources),
+    }
+
+
 # ============== Commands ==============
 
 
 def cmd_extract(args) -> int:
     """Extract URLs from backup files."""
-    # Validate --month format
-    if len(args.month) != 6 or not args.month.isdigit():
-        print("Error: --month must be YYYYMM format (e.g., 201810)", file=sys.stderr)
-        return 1
-    month_num = int(args.month[4:])
-    if not 1 <= month_num <= 12:
-        print("Error: month must be 01-12", file=sys.stderr)
-        return 1
+    month = args.month
+
+    # Validate --month format if provided
+    if month is not None:
+        if len(month) != 6 or not month.isdigit():
+            print("Error: --month must be YYYYMM format (e.g., 201810)", file=sys.stderr)
+            return 1
+        month_num = int(month[4:])
+        if not 1 <= month_num <= 12:
+            print("Error: month must be 01-12", file=sys.stderr)
+            return 1
 
     if not validate_backup_dir(args.backup_path):
         print(f"Error: Invalid backup directory: {args.backup_path}", file=sys.stderr)
@@ -411,69 +487,37 @@ def cmd_extract(args) -> int:
     plurks_dir = args.backup_path / "data" / "plurks"
     responses_dir = args.backup_path / "data" / "responses"
 
-    # Single month: YYYYMM -> YYYY-MM
-    scan_start = scan_end = f"{args.month[:4]}-{args.month[4:]}"
+    # Determine scan range
+    if month is not None:
+        scan_start = scan_end = f"{month[:4]}-{month[4:]}"
+        print(f"Extracting links for {scan_start}...")
+    else:
+        scan_start = scan_end = None
+        print("Extracting links from all files...")
 
     plurk_files = filter_plurk_files(plurks_dir, scan_start, scan_end)
     if not plurk_files:
         print("No plurk files found for specified period", file=sys.stderr)
         return 1
 
-    print(f"Processing {len(plurk_files)} plurk file(s)...")
-
-    # Collect all URLs from plurks
-    all_url_sources: dict[str, dict] = {}
-    for file in plurk_files:
-        url_sources = process_plurk_file(file)
-        merge_url_sources(all_url_sources, url_sources)
-        if url_sources:
-            print(f"  {file.name}: {len(url_sources)} URLs")
-
-    # Get response files matching these plurks
     base_ids = get_base_ids_from_plurks(plurk_files)
     response_files = filter_response_files(responses_dir, base_ids)
-    print(f"Processing {len(response_files)} response file(s)...")
 
-    for file in response_files:
-        url_sources = process_response_file(file)
-        merge_url_sources(all_url_sources, url_sources)
+    result = extract_links_from_files(
+        plurk_files=plurk_files,
+        response_files=response_files,
+        db_path=database,
+        progress_callback=lambda msg: print(f"  {msg}"),
+    )
 
-    # Count images vs regular links
-    image_count = sum(1 for url in all_url_sources if is_image_url(url))
-    link_count = len(all_url_sources) - image_count
-    print(f"\nFound {len(all_url_sources)} unique URLs ({link_count} links, {image_count} images)")
-
-    # Save to database
-    conn = sqlite3.connect(database)
-    create_link_metadata_table(conn)
-
-    new_count = 0
-    new_images = 0
-    merged_count = 0
-    own_plurk_count = 0
-    for url, sources in all_url_sources.items():
-        if is_own_plurk_url(url, conn):
-            own_plurk_count += 1
-            continue
-        if upsert_link(conn, url, sources):
-            new_count += 1
-            if is_image_url(url):
-                new_images += 1
-        else:
-            merged_count += 1
-
-    conn.commit()
-    conn.close()
-
-    new_links = new_count - new_images
-    own_msg = f", {own_plurk_count} own-plurk skipped" if own_plurk_count else ""
-    print(f"Database updated: {new_count} new ({new_links} links, {new_images} images), {merged_count} merged{own_msg}")
+    own_msg = f", {result['own_plurk_count']} own-plurk skipped" if result['own_plurk_count'] else ""
+    print(f"Database updated: {result['new_count']} new, {result['merged_count']} merged{own_msg}")
 
     # Optionally fetch OG metadata
     if args.fetch_previews:
         print("\n--- Fetching OG metadata ---")
         args.limit = getattr(args, "limit", 0) or 0  # 0 = all newly extracted
-        return cmd_fetch_previews_internal(args, list(all_url_sources.keys()))
+        return cmd_fetch_previews_internal(args, None)
 
     return 0
 

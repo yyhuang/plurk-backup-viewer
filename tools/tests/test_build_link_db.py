@@ -9,6 +9,7 @@ import pytest
 from links_cmd import (
     PLURK_URL_PATTERN,
     create_link_metadata_table,
+    extract_links_from_files,
     extract_urls,
     is_image_content_type,
     is_image_url,
@@ -533,6 +534,153 @@ class TestExtractSkipsOwnPlurks:
             "SELECT COUNT(*) FROM link_metadata WHERE url = ?", (url,)
         ).fetchone()
         assert row[0] == 1
+
+
+class TestExtractLinksFromFiles:
+    """Tests for extract_links_from_files() reusable function."""
+
+    def _setup_backup(self, tmp_path: Path):
+        """Create minimal backup files with known URLs."""
+        plurk_file = tmp_path / "2018_10.js"
+        plurk_file.write_text(
+            'BackupData.plurks["2018_10"]=['
+            '{"id": 100, "base_id": "abc", "content_raw": "See https://example.com/article"},'
+            '{"id": 200, "base_id": "def", "content_raw": "Image https://example.com/photo.jpg"}'
+            '];'
+        )
+        response_file = tmp_path / "abc.js"
+        response_file.write_text(
+            'BackupData.responses["abc"]=['
+            '{"id": 301, "content_raw": "Reply with https://example.com/article", "user": {"id": 1, "nick_name": "test"}}'
+            '];'
+        )
+        return [plurk_file], [response_file]
+
+    def test_basic_extraction(self, tmp_path: Path):
+        """Extract links from plurk and response files."""
+        plurk_files, response_files = self._setup_backup(tmp_path)
+        db_path = tmp_path / "test.db"
+
+        # Create plurks table (needed for own-plurk URL check)
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        result = extract_links_from_files(
+            plurk_files=plurk_files,
+            response_files=response_files,
+            db_path=db_path,
+        )
+
+        assert result["new_count"] == 2  # example.com/article + photo.jpg
+        assert result["total_urls"] == 2
+        assert result["image_count"] == 1  # photo.jpg
+        assert result["own_plurk_count"] == 0
+
+    def test_merged_sources(self, tmp_path: Path):
+        """Same URL in plurk and response merges source IDs."""
+        plurk_files, response_files = self._setup_backup(tmp_path)
+        db_path = tmp_path / "test.db"
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        extract_links_from_files(
+            plurk_files=plurk_files,
+            response_files=response_files,
+            db_path=db_path,
+        )
+
+        # Check that example.com/article has both plurk and response sources
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT sources FROM link_metadata WHERE url = ?",
+            ("https://example.com/article",),
+        ).fetchone()
+        conn.close()
+
+        sources = json.loads(row[0])
+        assert 100 in sources["plurk_ids"]
+        assert 301 in sources["response_ids"]
+
+    def test_idempotent_rerun(self, tmp_path: Path):
+        """Running twice reports 0 new, N merged."""
+        plurk_files, response_files = self._setup_backup(tmp_path)
+        db_path = tmp_path / "test.db"
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        # First run
+        result1 = extract_links_from_files(
+            plurk_files=plurk_files,
+            response_files=response_files,
+            db_path=db_path,
+        )
+        assert result1["new_count"] == 2
+
+        # Second run — all merged, none new
+        result2 = extract_links_from_files(
+            plurk_files=plurk_files,
+            response_files=response_files,
+            db_path=db_path,
+        )
+        assert result2["new_count"] == 0
+        assert result2["merged_count"] == 2
+
+    def test_progress_callback(self, tmp_path: Path):
+        """Progress callback receives messages."""
+        plurk_files, response_files = self._setup_backup(tmp_path)
+        db_path = tmp_path / "test.db"
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        messages: list[str] = []
+        extract_links_from_files(
+            plurk_files=plurk_files,
+            response_files=response_files,
+            db_path=db_path,
+            progress_callback=messages.append,
+        )
+
+        assert len(messages) > 0
+        assert any("plurk" in m.lower() for m in messages)
+        assert any("response" in m.lower() for m in messages)
+
+    def test_own_plurk_urls_skipped(self, tmp_path: Path):
+        """Own-plurk URLs are not inserted."""
+        # Create a plurk that contains a URL to itself
+        # "2s" in base36 = 100 in decimal
+        plurk_file = tmp_path / "2018_10.js"
+        plurk_file.write_text(
+            'BackupData.plurks["2018_10"]=['
+            '{"id": 100, "base_id": "abc", "content_raw": "Check https://www.plurk.com/p/2s"}'
+            '];'
+        )
+        db_path = tmp_path / "test.db"
+
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        conn.execute("INSERT INTO plurks (id) VALUES (100)")
+        conn.commit()
+        conn.close()
+
+        result = extract_links_from_files(
+            plurk_files=[plurk_file],
+            response_files=[],
+            db_path=db_path,
+        )
+
+        assert result["own_plurk_count"] == 1
+        assert result["new_count"] == 0
 
 
 # Note: CLI tests for links_cmd.py were removed since the standalone CLI was

@@ -21,14 +21,9 @@ from database import resolve_icu_extension
 from init_cmd import build_database, create_config
 from links_cmd import (
     OGFetcher,
-    create_link_metadata_table,
+    extract_links_from_files,
     is_own_plurk_url,
-    is_image_url,
-    merge_url_sources,
-    process_plurk_file,
-    process_response_file,
     update_og_metadata,
-    upsert_link,
 )
 from patch_cmd import patch_index_html
 from utils import (
@@ -224,8 +219,23 @@ def run_init(data_dir: Path, tracker: TaskTracker, on_complete=None) -> bool:
             db_path.unlink()
             tracker.update(log_line="Removed existing database")
 
-        plurk_count, response_count = build_database(backup_path, db_path, icu_path)
-        tracker.update(log_line=f"Database: {plurk_count:,} plurks, {response_count:,} responses")
+        result = build_database(backup_path, db_path, icu_path)
+        tracker.update(log_line=f"Database: {result.plurk_count:,} plurks, {result.response_count:,} responses")
+
+        # Extract links
+        tracker.update(log_line="Extracting links...")
+        link_result = extract_links_from_files(
+            plurk_files=result.plurk_files,
+            response_files=result.response_files,
+            db_path=db_path,
+            tokenizer=tokenizer_name,
+            progress_callback=lambda msg: tracker.update(log_line=msg),
+        )
+        tracker.update(log_line=(
+            f"Links: {link_result['new_count']} new, "
+            f"{link_result['merged_count']} merged, "
+            f"{link_result['own_plurk_count']} own-plurk skipped"
+        ))
 
         # Patch index.html
         tracker.update(log_line="Patching index.html...")
@@ -235,7 +245,7 @@ def run_init(data_dir: Path, tracker: TaskTracker, on_complete=None) -> bool:
         else:
             tracker.update(log_line="index.html already patched or not found")
 
-        tracker.finish(True, f"Initialization complete! {plurk_count:,} plurks, {response_count:,} responses")
+        tracker.finish(True, f"Initialization complete! {result.plurk_count:,} plurks, {result.response_count:,} responses")
 
         if on_complete:
             on_complete(data_dir)
@@ -249,12 +259,12 @@ def run_init(data_dir: Path, tracker: TaskTracker, on_complete=None) -> bool:
 
 def run_links_extract(data_dir: Path, start_month: str, end_month: str,
                       tracker: TaskTracker) -> bool:
-    """Extract URLs from backup files for a month range.
+    """Extract URLs from backup files.
 
     Args:
         data_dir: Data directory (contains backup/, plurks.db, config.json)
-        start_month: Start month as YYYYMM
-        end_month: End month as YYYYMM
+        start_month: Start month as YYYYMM (empty string = all files)
+        end_month: End month as YYYYMM (empty string = all files)
         tracker: TaskTracker for progress updates
 
     Returns:
@@ -275,65 +285,32 @@ def run_links_extract(data_dir: Path, start_month: str, end_month: str,
         plurks_dir = backup_path / "data" / "plurks"
         responses_dir = backup_path / "data" / "responses"
 
-        # Convert YYYYMM to YYYY-MM
-        scan_start = f"{start_month[:4]}-{start_month[4:]}"
-        scan_end = f"{end_month[:4]}-{end_month[4:]}"
-
-        tracker.update(log_line=f"Scanning {scan_start} to {scan_end}...")
+        # Determine scan range
+        if start_month and end_month:
+            scan_start = f"{start_month[:4]}-{start_month[4:]}"
+            scan_end = f"{end_month[:4]}-{end_month[4:]}"
+            tracker.update(log_line=f"Scanning {scan_start} to {scan_end}...")
+        else:
+            scan_start = scan_end = None
+            tracker.update(log_line="Scanning all files...")
 
         plurk_files = filter_plurk_files(plurks_dir, scan_start, scan_end)
         if not plurk_files:
-            tracker.finish(False, "No plurk files found for specified period.")
+            tracker.finish(False, "No plurk files found.")
             return False
 
-        tracker.update(log_line=f"Processing {len(plurk_files)} plurk file(s)...")
-
-        # Collect all URLs from plurks
-        all_url_sources: dict[str, dict] = {}
-        for i, f in enumerate(plurk_files, 1):
-            url_sources = process_plurk_file(f)
-            merge_url_sources(all_url_sources, url_sources)
-            if url_sources:
-                tracker.update(log_line=f"  {f.name}: {len(url_sources)} URLs")
-            if i % 10 == 0:
-                tracker.update(progress=f"Plurks: {i}/{len(plurk_files)}")
-
-        # Get response files matching these plurks
         base_ids = get_base_ids_from_plurks(plurk_files)
         response_files = filter_response_files(responses_dir, base_ids)
-        tracker.update(log_line=f"Processing {len(response_files)} response file(s)...")
 
-        for i, f in enumerate(response_files, 1):
-            url_sources = process_response_file(f)
-            merge_url_sources(all_url_sources, url_sources)
-            if i % 50 == 0:
-                tracker.update(progress=f"Responses: {i}/{len(response_files)}")
+        result = extract_links_from_files(
+            plurk_files=plurk_files,
+            response_files=response_files,
+            db_path=db_path,
+            progress_callback=lambda msg: tracker.update(log_line=msg),
+        )
 
-        image_count = sum(1 for url in all_url_sources if is_image_url(url))
-        link_count = len(all_url_sources) - image_count
-        tracker.update(log_line=f"Found {len(all_url_sources)} unique URLs ({link_count} links, {image_count} images)")
-
-        # Save to database
-        conn = sqlite3.connect(str(db_path))
-        create_link_metadata_table(conn)
-
-        new_count = 0
-        own_plurk_count = 0
-        merged_count = 0
-        for url, sources in all_url_sources.items():
-            if is_own_plurk_url(url, conn):
-                own_plurk_count += 1
-                continue
-            if upsert_link(conn, url, sources):
-                new_count += 1
-            else:
-                merged_count += 1
-
-        conn.commit()
-        conn.close()
-
-        own_msg = f", {own_plurk_count} own-plurk skipped" if own_plurk_count else ""
-        tracker.finish(True, f"Extract complete: {new_count} new, {merged_count} merged{own_msg}")
+        own_msg = f", {result['own_plurk_count']} own-plurk skipped" if result['own_plurk_count'] else ""
+        tracker.finish(True, f"Extract complete: {result['new_count']} new, {result['merged_count']} merged{own_msg}")
         return True
 
     except Exception as e:
@@ -492,11 +469,21 @@ class AdminHandler(http.server.BaseHTTPRequestHandler):
         backup_path = self.data_dir / "backup"
         db_path = self.data_dir / "plurks.db"
 
+        backup_valid = validate_backup_dir(backup_path)
         info: dict = {
-            "backup_exists": validate_backup_dir(backup_path),
+            "backup_exists": backup_valid,
             "db_exists": db_path.exists(),
             "icu_available": resolve_icu_extension() is not None,
         }
+
+        # Get backup date range from plurk filenames (YYYY_MM.js)
+        if backup_valid:
+            plurks_dir = backup_path / "data" / "plurks"
+            month_files = sorted(plurks_dir.glob("*.js"))
+            if month_files:
+                first = month_files[0].stem.replace("_", "-")
+                last = month_files[-1].stem.replace("_", "-")
+                info["backup_range"] = f"{first} ~ {last}"
 
         # Get record counts if DB exists
         if db_path.exists():
@@ -577,15 +564,16 @@ class AdminHandler(http.server.BaseHTTPRequestHandler):
         start_month = params.get("start_month", "")
         end_month = params.get("end_month", "")
 
-        # Validate month format (YYYYMM)
+        # Validate month format if provided (empty = all files)
         for m in (start_month, end_month):
-            if len(m) != 6 or not m.isdigit():
-                self._send_json({"error": f"Invalid month format: {m}. Use YYYYMM."}, 400)
-                return
-            month_num = int(m[4:])
-            if not 1 <= month_num <= 12:
-                self._send_json({"error": f"Invalid month: {m}"}, 400)
-                return
+            if m:  # Only validate non-empty months
+                if len(m) != 6 or not m.isdigit():
+                    self._send_json({"error": f"Invalid month format: {m}. Use YYYYMM."}, 400)
+                    return
+                month_num = int(m[4:])
+                if not 1 <= month_num <= 12:
+                    self._send_json({"error": f"Invalid month: {m}"}, 400)
+                    return
 
         if not self.tracker.start("extract"):
             self._send_json({"error": "A task is already running"}, 409)

@@ -9,6 +9,7 @@ Database and config are stored in the viewer/ directory.
 
 import json
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from database import (
@@ -56,9 +57,19 @@ def create_config(
     config_path.write_text(json.dumps(config, indent=2))
 
 
+@dataclass
+class BuildResult:
+    """Result of build_database()."""
+
+    plurk_count: int
+    response_count: int
+    plurk_files: list[Path] = field(default_factory=list)
+    response_files: list[Path] = field(default_factory=list)
+
+
 def build_database(
     backup_path: Path, db_path: Path, icu_extension_path: str | None = None
-) -> tuple[int, int]:
+) -> BuildResult:
     """Build SQLite database from backup.
 
     Args:
@@ -67,7 +78,7 @@ def build_database(
         icu_extension_path: Optional path to ICU tokenizer extension
 
     Returns:
-        Tuple of (plurk_count, response_count)
+        BuildResult with counts and file lists
     """
     import sqlite3
     from datetime import date
@@ -126,7 +137,12 @@ def build_database(
     else:
         print(f"Imported {plurk_new} plurks, {response_new} responses")
 
-    return plurk_count, response_count
+    return BuildResult(
+        plurk_count=plurk_count,
+        response_count=response_count,
+        plurk_files=plurk_files,
+        response_files=response_files,
+    )
 
 
 def cmd_init(backup_path: Path, icu_extension: str | None = None) -> int:
@@ -176,13 +192,36 @@ def cmd_init(backup_path: Path, icu_extension: str | None = None) -> int:
     # Step 2: Build database
     print("Building database...")
     db_path = DATA_DIR / "plurks.db"
-    plurk_count, response_count = build_database(backup_path, db_path, icu_path)
+    result = build_database(backup_path, db_path, icu_path)
 
     print()
-    print(f"Done! Database: {plurk_count:,} plurks, {response_count:,} responses")
+    print(f"Database: {result.plurk_count:,} plurks, {result.response_count:,} responses")
     print(f"Tokenizer: {'icu zh' if icu_path else 'unicode61'}")
+
+    # Step 3: Extract links
+    try:
+        from links_cmd import extract_links_from_files
+
+        tokenizer = "icu zh" if icu_path else "unicode61"
+        print()
+        print("Extracting links...")
+        link_result = extract_links_from_files(
+            plurk_files=result.plurk_files,
+            response_files=result.response_files,
+            db_path=db_path,
+            tokenizer=tokenizer,
+            progress_callback=lambda msg: print(f"  {msg}"),
+        )
+        print(
+            f"Links: {link_result['new_count']} new, "
+            f"{link_result['merged_count']} merged, "
+            f"{link_result['own_plurk_count']} own-plurk skipped"
+        )
+    except Exception as e:
+        print(f"Warning: Link extraction failed: {e}", file=sys.stderr)
+
     print()
-    print("To start the server:")
+    print("Done! To start the server:")
     print(f"  cd {TOOL_ROOT / 'tools'}")
     print("  uv run plurk-tools serve")
 

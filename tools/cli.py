@@ -5,7 +5,7 @@ Usage:
     plurk-tools init <backup_path>
     plurk-tools serve [--port 8000]
     plurk-tools patch
-    plurk-tools links extract --month YYYYMM
+    plurk-tools links extract [--month YYYYMM]
     plurk-tools links fetch [--limit 50]
     plurk-tools links status
 """
@@ -28,7 +28,10 @@ Examples:
   # Serve viewer (starts development server)
   plurk-tools serve
 
-  # Extract links from October 2018
+  # Extract links from all files
+  plurk-tools links extract
+
+  # Extract links from October 2018 only
   plurk-tools links extract --month 201810
 
   # Fetch OG metadata for pending links
@@ -108,8 +111,8 @@ Examples:
     links_extract_parser.add_argument(
         "--month",
         type=str,
-        required=True,
-        help="Month to process (YYYYMM format)",
+        default=None,
+        help="Month to process (YYYYMM format). Omit to process all files.",
     )
     links_extract_parser.add_argument(
         "--fetch-previews",

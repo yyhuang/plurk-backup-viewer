@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Plurk Backup Admin</title>
+    <title>Plurk Backup Viewer Admin</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -14,26 +14,59 @@
         .header {
             background: #cf682f;
             color: #fff;
-            padding: 16px 24px;
-            font-size: 20px;
+            height: 42px;
+            line-height: 42px;
+            padding: 0 14px;
+            font-size: 14px;
             font-weight: bold;
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
         }
-        .back-link {
-            color: #fff;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: normal;
-            opacity: 0.9;
-            white-space: nowrap;
+        .plurk-logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 0;
         }
-        .back-link:hover { opacity: 1; text-decoration: underline; }
+        .plurk-logo-icon, .plurk-logo-text {
+            display: inline-block;
+            background-repeat: no-repeat;
+            background-size: 51px 106px;
+            vertical-align: middle;
+        }
+        .plurk-logo-icon {
+            width: 29px;
+            height: 24px;
+            background-position: 0 -36px;
+            margin-right: 6px;
+        }
+        .plurk-logo-text {
+            width: 51px;
+            height: 24px;
+            background-position: 0 -12px;
+        }
         .container {
-            max-width: 800px;
+            max-width: 1100px;
             margin: 24px auto;
             padding: 0 16px;
+        }
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0 20px;
+            align-items: start;
+        }
+        .col-left {
+            position: sticky;
+            top: 24px;
+        }
+        @media (max-width: 768px) {
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+            .col-left {
+                position: static;
+            }
         }
         .card {
             background: #fff;
@@ -50,7 +83,7 @@
         }
         .status-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 8px;
         }
         .status-item {
@@ -152,10 +185,15 @@
 </head>
 <body>
     <div class="header">
-        <a id="back-link" class="back-link">← Home</a>
-        Plurk Backup Admin
+        <a id="home-link" class="plurk-logo">
+            <span class="plurk-logo-icon" id="plurk-logo-icon"></span>
+            <span class="plurk-logo-text" id="plurk-logo-text"></span>
+        </a>
+        Plurk Backup Viewer Admin
     </div>
     <div class="container">
+        <div class="two-col">
+        <div class="col-left">
         <div class="card" id="status-card">
             <h2>System Status</h2>
             <div class="status-grid" id="status-grid">
@@ -183,6 +221,13 @@
         </div>
 
         <div class="card">
+            <h2>Log</h2>
+            <div class="log-area" id="log-area">Waiting...</div>
+        </div>
+        </div>
+
+        <div class="col-right">
+        <div class="card">
             <h2>Upload Backup</h2>
             <div class="upload-area" id="drop-zone">
                 <p><label for="file-input">Choose a .zip file</label> or drag and drop</p>
@@ -197,9 +242,9 @@
         </div>
 
         <div class="card">
-            <h2>Initialize Database</h2>
+            <h2>Build Database</h2>
             <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
-                Build the search database from the uploaded backup. This may take a minute.
+                Create a searchable database from your backup. This also finds all links in your posts. May take a few minutes.
             </p>
             <div class="btn-row">
                 <button class="primary" id="init-btn" disabled>Build Database</button>
@@ -209,37 +254,14 @@
         </div>
 
         <div class="card">
-            <h2>Extract Links</h2>
-            <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
-                Extract URLs from plurks and responses for a given month range.
-            </p>
-            <div style="display: flex; gap: 12px; align-items: end; margin-bottom: 12px; flex-wrap: wrap;">
-                <div>
-                    <label style="font-size: 13px; color: #666; display: block; margin-bottom: 4px;">Start Month</label>
-                    <input type="month" id="extract-start" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
-                </div>
-                <div>
-                    <label style="font-size: 13px; color: #666; display: block; margin-bottom: 4px;">End Month</label>
-                    <input type="month" id="extract-end" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
-                </div>
-            </div>
-            <div class="btn-row">
-                <button class="primary" id="extract-btn" disabled>Extract</button>
-                <span class="btn-status" id="extract-status"></span>
-            </div>
-            <div class="progress-bar" id="extract-progress"><div class="fill"></div></div>
-        </div>
-
-        <div class="card">
             <h2>Fetch Link Metadata</h2>
             <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
-                Fetch OG metadata (title, description) for pending links using a headless browser.
+                Download titles and descriptions for links found in your posts, so they become searchable too. This can be slow — each link takes a few seconds to fetch.
             </p>
-            <div style="display: flex; gap: 12px; align-items: end; margin-bottom: 12px;">
-                <div>
-                    <label style="font-size: 13px; color: #666; display: block; margin-bottom: 4px;">Limit (0 = all pending)</label>
-                    <input type="number" id="fetch-limit" value="0" min="0" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 100px;">
-                </div>
+            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
+                <label style="font-size: 13px; color: #666; white-space: nowrap;">Fetch up to</label>
+                <input type="number" id="fetch-limit" value="100" min="1" style="padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 80px;">
+                <span style="font-size: 13px; color: #666;">links at a time</span>
             </div>
             <div class="btn-row">
                 <button class="primary" id="fetch-btn" disabled>Fetch</button>
@@ -249,8 +271,17 @@
         </div>
 
         <div class="card">
-            <h2>Log</h2>
-            <div class="log-area" id="log-area">Waiting...</div>
+            <h2>Extract Links</h2>
+            <p style="margin-bottom: 12px; font-size: 14px; color: #666;">
+                Re-scan posts for links. Only needed if the automatic extraction during build was interrupted.
+            </p>
+            <div class="btn-row">
+                <button class="primary" id="extract-btn" disabled>Extract All Links</button>
+                <span class="btn-status" id="extract-status"></span>
+            </div>
+            <div class="progress-bar" id="extract-progress"><div class="fill"></div></div>
+        </div>
+        </div>
         </div>
     </div>
 
@@ -272,8 +303,6 @@
     const extractBtn = $('extract-btn');
     const extractStatus = $('extract-status');
     const extractProgress = $('extract-progress');
-    const extractStart = $('extract-start');
-    const extractEnd = $('extract-end');
     const fetchBtn = $('fetch-btn');
     const fetchStatus = $('fetch-status');
     const fetchProgress = $('fetch-progress');
@@ -283,8 +312,12 @@
     let polling = false;
     let lastLogLength = 0;
 
-    // Set back link to main server
-    $('back-link').href = 'http://' + location.hostname + ':8000/landing.html';
+    // Set links to main server
+    const mainServer = 'http://' + location.hostname + ':8000';
+    $('home-link').href = mainServer + '/landing.html';
+    const iconsUrl = 'url(' + mainServer + '/static/icons.png)';
+    $('plurk-logo-icon').style.backgroundImage = iconsUrl;
+    $('plurk-logo-text').style.backgroundImage = iconsUrl;
 
     // --- Status ---
     async function refreshInfo() {
@@ -293,7 +326,11 @@
             const info = await res.json();
 
             const stBackup = $('st-backup');
-            stBackup.textContent = info.backup_exists ? 'Found' : 'Not found';
+            if (info.backup_exists && info.backup_range) {
+                stBackup.textContent = info.backup_range;
+            } else {
+                stBackup.textContent = info.backup_exists ? 'Found' : 'Not found';
+            }
             stBackup.className = 'value ' + (info.backup_exists ? 'ok' : 'missing');
 
             const stDb = $('st-db');
@@ -316,8 +353,9 @@
 
             const stLinks = $('st-links');
             if (info.db_exists && info.link_total !== undefined && info.link_total > 0) {
-                stLinks.textContent = info.link_total.toLocaleString() + ' total (' +
-                                      info.link_pending.toLocaleString() + ' pending)';
+                const fetched = info.link_total - info.link_pending;
+                stLinks.textContent = info.link_total.toLocaleString() + ' total, ' +
+                                      fetched.toLocaleString() + ' fetched';
                 stLinks.className = 'value ok';
             } else if (info.db_exists) {
                 stLinks.textContent = 'Not extracted';
@@ -435,21 +473,6 @@
 
     // --- Extract Links ---
     extractBtn.addEventListener('click', async function() {
-        const startVal = extractStart.value; // YYYY-MM
-        const endVal = extractEnd.value;
-        if (!startVal || !endVal) {
-            extractStatus.textContent = 'Please select start and end months';
-            return;
-        }
-        if (startVal > endVal) {
-            extractStatus.textContent = 'Start month must be before end month';
-            return;
-        }
-
-        // Convert YYYY-MM to YYYYMM
-        const startMonth = startVal.replace('-', '');
-        const endMonth = endVal.replace('-', '');
-
         disableAllButtons();
         extractStatus.textContent = 'Extracting...';
         extractProgress.style.display = 'block';
@@ -461,7 +484,7 @@
             const res = await fetch('/api/admin/links/extract', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start_month: startMonth, end_month: endMonth }),
+                body: '{}',
             });
             const data = await res.json();
 
@@ -482,7 +505,7 @@
 
     // --- Fetch Links ---
     fetchBtn.addEventListener('click', async function() {
-        const limit = parseInt(fetchLimitInput.value) || 0;
+        const limit = Math.max(1, parseInt(fetchLimitInput.value) || 100);
 
         disableAllButtons();
         fetchStatus.textContent = 'Fetching...';
