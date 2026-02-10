@@ -355,7 +355,7 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
         # Get pending URLs
         limit_clause = f"LIMIT {limit}" if limit else ""
         rows = conn.execute(
-            f"SELECT url FROM link_metadata WHERE status = 'pending' {limit_clause}"
+            f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY rowid DESC {limit_clause}"
         ).fetchall()
         pending_urls = [row[0] for row in rows]
 
@@ -511,6 +511,12 @@ class AdminHandler(http.server.BaseHTTPRequestHandler):
                     ).fetchone()[0]
                     info["link_pending"] = conn.execute(
                         "SELECT COUNT(*) FROM link_metadata WHERE status = 'pending'"
+                    ).fetchone()[0]
+                    info["link_success"] = conn.execute(
+                        "SELECT COUNT(*) FROM link_metadata WHERE status = 'success'"
+                    ).fetchone()[0]
+                    info["link_image"] = conn.execute(
+                        "SELECT COUNT(*) FROM link_metadata WHERE status = 'image'"
                     ).fetchone()[0]
 
                 conn.close()

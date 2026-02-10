@@ -84,7 +84,36 @@ class SearchDB:
         if mode == "fts":
             fts_query = self._build_fts_query(query)
 
-            if search_type in ("all", "plurks"):
+            if search_type == "all":
+                rows = conn.execute(
+                    """
+                    SELECT p.id, p.base_id, p.content_raw, p.posted, p.qualifier,
+                           p.response_count, 'plurk' as type
+                    FROM plurks p
+                    JOIN plurks_fts ON plurks_fts.rowid = p.id
+                    WHERE plurks_fts MATCH ?
+                    UNION ALL
+                    SELECT r.id, r.base_id, r.content_raw, r.posted, r.user_nick,
+                           r.user_display, 'response' as type
+                    FROM responses r
+                    JOIN responses_fts ON responses_fts.rowid = r.id
+                    WHERE responses_fts MATCH ?
+                    ORDER BY posted DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (fts_query, fts_query, RESULTS_PER_PAGE, offset),
+                ).fetchall()
+                results.extend(self._rows_to_content_dicts(rows))
+
+                total_count = conn.execute(
+                    """
+                    SELECT (SELECT COUNT(*) FROM plurks_fts WHERE plurks_fts MATCH ?)
+                         + (SELECT COUNT(*) FROM responses_fts WHERE responses_fts MATCH ?)
+                    """,
+                    (fts_query, fts_query),
+                ).fetchone()[0]
+
+            elif search_type == "plurks":
                 rows = conn.execute(
                     """
                     SELECT p.id, p.base_id, p.content_raw, p.posted, p.qualifier,
@@ -99,13 +128,12 @@ class SearchDB:
                 ).fetchall()
                 results.extend(self._rows_to_content_dicts(rows))
 
-                count = conn.execute(
+                total_count = conn.execute(
                     "SELECT COUNT(*) FROM plurks_fts WHERE plurks_fts MATCH ?",
                     (fts_query,),
                 ).fetchone()[0]
-                total_count += count
 
-            if search_type in ("all", "responses"):
+            elif search_type == "responses":
                 rows = conn.execute(
                     """
                     SELECT r.id, r.base_id, r.content_raw, r.posted, r.user_nick,
@@ -120,16 +148,42 @@ class SearchDB:
                 ).fetchall()
                 results.extend(self._rows_to_content_dicts(rows))
 
-                count = conn.execute(
+                total_count = conn.execute(
                     "SELECT COUNT(*) FROM responses_fts WHERE responses_fts MATCH ?",
                     (fts_query,),
                 ).fetchone()[0]
-                total_count += count
 
         else:
             like_pattern = self._build_like_pattern(query)
 
-            if search_type in ("all", "plurks"):
+            if search_type == "all":
+                rows = conn.execute(
+                    """
+                    SELECT id, base_id, content_raw, posted, qualifier,
+                           response_count, 'plurk' as type
+                    FROM plurks
+                    WHERE content_raw LIKE ? ESCAPE '\\'
+                    UNION ALL
+                    SELECT id, base_id, content_raw, posted, user_nick,
+                           user_display, 'response' as type
+                    FROM responses
+                    WHERE content_raw LIKE ? ESCAPE '\\'
+                    ORDER BY posted DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (like_pattern, like_pattern, RESULTS_PER_PAGE, offset),
+                ).fetchall()
+                results.extend(self._rows_to_content_dicts(rows))
+
+                total_count = conn.execute(
+                    """
+                    SELECT (SELECT COUNT(*) FROM plurks WHERE content_raw LIKE ? ESCAPE '\\')
+                         + (SELECT COUNT(*) FROM responses WHERE content_raw LIKE ? ESCAPE '\\')
+                    """,
+                    (like_pattern, like_pattern),
+                ).fetchone()[0]
+
+            elif search_type == "plurks":
                 rows = conn.execute(
                     """
                     SELECT id, base_id, content_raw, posted, qualifier,
@@ -143,13 +197,12 @@ class SearchDB:
                 ).fetchall()
                 results.extend(self._rows_to_content_dicts(rows))
 
-                count = conn.execute(
+                total_count = conn.execute(
                     "SELECT COUNT(*) FROM plurks WHERE content_raw LIKE ? ESCAPE '\\'",
                     (like_pattern,),
                 ).fetchone()[0]
-                total_count += count
 
-            if search_type in ("all", "responses"):
+            elif search_type == "responses":
                 rows = conn.execute(
                     """
                     SELECT id, base_id, content_raw, posted, user_nick,
@@ -163,14 +216,10 @@ class SearchDB:
                 ).fetchall()
                 results.extend(self._rows_to_content_dicts(rows))
 
-                count = conn.execute(
+                total_count = conn.execute(
                     "SELECT COUNT(*) FROM responses WHERE content_raw LIKE ? ESCAPE '\\'",
                     (like_pattern,),
                 ).fetchone()[0]
-                total_count += count
-
-        # Sort combined results by date descending
-        results.sort(key=lambda r: r.get("posted") or "", reverse=True)
 
         total_pages = max(1, math.ceil(total_count / RESULTS_PER_PAGE))
         return {

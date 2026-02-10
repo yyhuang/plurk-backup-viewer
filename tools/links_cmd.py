@@ -577,7 +577,7 @@ def cmd_fetch_previews_internal(
         else:
             # Get all pending URLs
             limit_clause = f"LIMIT {args.limit}" if args.limit else ""
-            query = f"SELECT url FROM link_metadata WHERE status = 'pending' {limit_clause}"
+            query = f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY rowid DESC {limit_clause}"
             rows = conn.execute(query).fetchall()
 
         pending_urls = [row[0] for row in rows]

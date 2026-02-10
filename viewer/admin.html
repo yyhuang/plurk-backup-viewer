@@ -340,6 +340,7 @@
             responses: 'responses',
             total: 'total',
             fetched: 'fetched',
+            images: 'images',
         },
         'zh-TW': {
             systemStatus: '系統狀態',
@@ -384,6 +385,7 @@
             responses: '則回應',
             total: '總計',
             fetched: '已擷取',
+            images: '張圖片',
         }
     };
 
@@ -476,9 +478,10 @@
 
             const stLinks = $('st-links');
             if (info.db_exists && info.link_total !== undefined && info.link_total > 0) {
-                const fetched = info.link_total - info.link_pending;
-                stLinks.textContent = info.link_total.toLocaleString() + ' ' + t('total') + ', ' +
-                                      fetched.toLocaleString() + ' ' + t('fetched');
+                let parts = [info.link_total.toLocaleString() + ' ' + t('total')];
+                if (info.link_success) parts.push(info.link_success.toLocaleString() + ' ' + t('fetched'));
+                if (info.link_image) parts.push(info.link_image.toLocaleString() + ' ' + t('images'));
+                stLinks.textContent = parts.join(', ');
                 stLinks.className = 'value ok';
             } else if (info.db_exists) {
                 stLinks.textContent = t('notExtracted');
