@@ -401,7 +401,7 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
                     stats[result.status] = stats.get(result.status, 0) + 1
                     tracker.update(log_line=f"  → {result.status}")
         except ImportError:
-            tracker.finish(False, "Playwright not installed. Run: uv add playwright && playwright install chromium")
+            tracker.finish(False, "Playwright not installed. Run: uv add playwright && uv run playwright install chromium")
             return False
 
         summary = (f"Fetch complete: {stats['success']} success, {stats['no_og']} no_og, "

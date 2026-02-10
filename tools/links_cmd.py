@@ -91,7 +91,16 @@ class OGFetcher:
         from playwright.sync_api import sync_playwright
 
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(headless=True)
+        try:
+            self._browser = self._playwright.chromium.launch(headless=True)
+        except Exception as e:
+            self._playwright.stop()
+            if "Executable doesn't exist" in str(e):
+                raise RuntimeError(
+                    "Chromium browser not found. Install it with:\n"
+                    "  uv run playwright install chromium"
+                ) from None
+            raise
         self._context = self._browser.new_context()
         return self
 

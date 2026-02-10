@@ -27,6 +27,7 @@ unzip your-backup.zip
 git clone https://github.com/user/plurk-backup-viewer
 cd plurk-backup-viewer/tools
 uv sync
+uv run playwright install chromium
 
 # 3. Initialize database
 uv run plurk-tools init ../username-backup

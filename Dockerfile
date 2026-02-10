@@ -20,7 +20,8 @@ RUN ln -sf libsqlite3.so /usr/local/lib/libsqlite3.so.0 && ldconfig
 # Copy tools and install dependencies
 WORKDIR /app
 COPY tools/ /app/tools/
-RUN cd /app/tools && uv sync --frozen
+RUN cd /app/tools && uv sync --frozen \
+    && cd /app/tools && uv run playwright install chromium --with-deps
 
 # Copy entrypoint
 COPY docker/entrypoint.sh /app/entrypoint.sh
