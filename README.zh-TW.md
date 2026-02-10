@@ -34,6 +34,15 @@ docker compose up
 
 從 Plurk 匯出新備份後，透過管理介面 http://localhost:8001 重新上傳並重建即可。
 
+## 更新工具
+
+拉取新版程式碼後，需重新建置 Docker 映像：
+
+```bash
+git pull
+docker compose up --build
+```
+
 ## Cloudflare Tunnel（選用）
 
 透過 Cloudflare Tunnel 對外開放搜尋介面：

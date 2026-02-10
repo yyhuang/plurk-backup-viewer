@@ -34,6 +34,15 @@ docker compose up
 
 When you export a new backup from Plurk, use the admin interface at http://localhost:8001 to re-upload and rebuild.
 
+## Updating the Tool
+
+When pulling new code, rebuild the Docker image to pick up changes:
+
+```bash
+git pull
+docker compose up --build
+```
+
 ## Cloudflare Tunnel (Optional)
 
 To expose the search interface via Cloudflare Tunnel:
