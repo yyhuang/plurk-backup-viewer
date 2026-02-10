@@ -77,6 +77,46 @@ def resolve_icu_extension(config: dict | None = None) -> str | None:
     return None
 
 
+def connect_with_icu(
+    db_path: str | Path,
+    icu_extension_path: str | None = None,
+    config: dict | None = None,
+    row_factory=None,
+) -> tuple[sqlite3.Connection, bool]:
+    """Open a SQLite connection and optionally load the ICU extension.
+
+    ICU resolution order:
+    1. Use icu_extension_path if provided
+    2. Otherwise call resolve_icu_extension(config) to auto-detect
+
+    Args:
+        db_path: Path to the SQLite database
+        icu_extension_path: Explicit ICU extension path (takes priority)
+        config: Config dict passed to resolve_icu_extension() if no explicit path
+        row_factory: Optional row_factory to set on the connection
+
+    Returns:
+        (conn, icu_loaded) — icu_loaded is False if not found or load failed.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        if row_factory:
+            conn.row_factory = row_factory
+
+        path = icu_extension_path or resolve_icu_extension(config)
+        icu_loaded = False
+        if path:
+            try:
+                load_icu_extension(conn, path)
+                icu_loaded = True
+            except Exception as e:
+                print(f"Warning: Failed to load ICU extension: {e}")
+    except Exception:
+        conn.close()
+        raise
+    return conn, icu_loaded
+
+
 def create_schema(conn: sqlite3.Connection, tokenizer: str = "unicode61") -> None:
     """Create database schema with FTS5 tables and triggers.
 

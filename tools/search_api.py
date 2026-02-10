@@ -5,7 +5,7 @@ import math
 import sqlite3
 from pathlib import Path
 
-from database import load_icu_extension
+from database import connect_with_icu
 
 RESULTS_PER_PAGE = 50
 
@@ -20,15 +20,14 @@ class SearchDB:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path)
-            self._conn.row_factory = sqlite3.Row
-            if self.icu_extension_path:
-                try:
-                    load_icu_extension(self._conn, self.icu_extension_path)
-                except Exception as e:
-                    print(f"Warning: Failed to load ICU extension: {e}")
-                    print("  Falling back to unicode61 tokenizer")
-                    self.icu_extension_path = None
+            self._conn, icu_loaded = connect_with_icu(
+                self.db_path,
+                self.icu_extension_path,
+                row_factory=sqlite3.Row,
+            )
+            if self.icu_extension_path and not icu_loaded:
+                print("  Falling back to unicode61 tokenizer")
+                self.icu_extension_path = None
         return self._conn
 
     def close(self) -> None:

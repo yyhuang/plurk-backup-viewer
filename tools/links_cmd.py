@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from database import connect_with_icu, resolve_icu_extension
 from utils import (
     filter_plurk_files,
     filter_response_files,
@@ -398,6 +399,7 @@ def extract_links_from_files(
     response_files: list[Path],
     db_path: Path,
     tokenizer: str = "unicode61",
+    icu_extension_path: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict:
     """Extract URLs from given file lists and upsert into link_metadata.
@@ -409,6 +411,7 @@ def extract_links_from_files(
         response_files: Response data files to process
         db_path: Path to SQLite database
         tokenizer: FTS5 tokenizer name for link_metadata_fts
+        icu_extension_path: Path to ICU extension (needed for FTS5 triggers)
         progress_callback: Optional callback(message) for progress reporting
 
     Returns:
@@ -433,23 +436,25 @@ def extract_links_from_files(
     link_count = len(all_url_sources) - image_count
     log(f"Found {len(all_url_sources)} unique URLs ({link_count} links, {image_count} images)")
 
-    conn = sqlite3.connect(str(db_path))
-    create_link_metadata_table(conn, tokenizer)
+    conn, icu_loaded = connect_with_icu(db_path, icu_extension_path)
+    try:
+        create_link_metadata_table(conn, tokenizer)
 
-    new_count = 0
-    merged_count = 0
-    own_plurk_count = 0
-    for url, sources in all_url_sources.items():
-        if is_own_plurk_url(url, conn):
-            own_plurk_count += 1
-            continue
-        if upsert_link(conn, url, sources):
-            new_count += 1
-        else:
-            merged_count += 1
+        new_count = 0
+        merged_count = 0
+        own_plurk_count = 0
+        for url, sources in all_url_sources.items():
+            if is_own_plurk_url(url, conn):
+                own_plurk_count += 1
+                continue
+            if upsert_link(conn, url, sources):
+                new_count += 1
+            else:
+                merged_count += 1
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
     log(f"Database updated: {new_count} new, {merged_count} merged")
 
@@ -503,10 +508,12 @@ def cmd_extract(args) -> int:
     base_ids = get_base_ids_from_plurks(plurk_files)
     response_files = filter_response_files(responses_dir, base_ids)
 
+    icu_path = resolve_icu_extension(load_config())
     result = extract_links_from_files(
         plurk_files=plurk_files,
         response_files=response_files,
         db_path=database,
+        icu_extension_path=icu_path,
         progress_callback=lambda msg: print(f"  {msg}"),
     )
 
@@ -550,63 +557,67 @@ def cmd_fetch_previews_internal(
         print("Run 'extract' command first to create the database.", file=sys.stderr)
         return 1
 
-    conn = sqlite3.connect(database)
+    conn, _ = connect_with_icu(database, config=load_config())
+    try:
+        # Get pending URLs
+        if url_filter:
+            # Filter to specific URLs that are pending
+            placeholders = ",".join("?" * len(url_filter))
+            query = f"SELECT url FROM link_metadata WHERE status = 'pending' AND url IN ({placeholders})"
+            rows = conn.execute(query, url_filter).fetchall()
+        else:
+            # Get all pending URLs
+            limit_clause = f"LIMIT {args.limit}" if args.limit else ""
+            query = f"SELECT url FROM link_metadata WHERE status = 'pending' {limit_clause}"
+            rows = conn.execute(query).fetchall()
 
-    # Get pending URLs
-    if url_filter:
-        # Filter to specific URLs that are pending
-        placeholders = ",".join("?" * len(url_filter))
-        query = f"SELECT url FROM link_metadata WHERE status = 'pending' AND url IN ({placeholders})"
-        rows = conn.execute(query, url_filter).fetchall()
-    else:
-        # Get all pending URLs
-        limit_clause = f"LIMIT {args.limit}" if args.limit else ""
-        query = f"SELECT url FROM link_metadata WHERE status = 'pending' {limit_clause}"
-        rows = conn.execute(query).fetchall()
+        pending_urls = [row[0] for row in rows]
 
-    pending_urls = [row[0] for row in rows]
+        if not pending_urls:
+            print("No pending URLs to fetch.")
+            return 0
 
-    if not pending_urls:
-        print("No pending URLs to fetch.")
-        conn.close()
-        return 0
+        print(f"Fetching OG metadata for {len(pending_urls)} URLs...")
 
-    print(f"Fetching OG metadata for {len(pending_urls)} URLs...")
-
-    # Filter out own-plurk URLs (safety net - extract should skip these too)
-    own_plurk_urls = [url for url in pending_urls if is_own_plurk_url(url, conn)]
-    if own_plurk_urls:
-        for url in own_plurk_urls:
-            conn.execute("DELETE FROM link_metadata WHERE url = ?", (url,))
-        conn.commit()
-        pending_urls = [url for url in pending_urls if url not in set(own_plurk_urls)]
-        print(f"Skipped {len(own_plurk_urls)} own-plurk URL(s)")
-
-    if not pending_urls:
-        print("No pending URLs to fetch.")
-        conn.close()
-        return 0
-
-    # Fetch OG metadata
-    stats = {"success": 0, "no_og": 0, "image": 0, "timeout": 0, "failed": 0}
-
-    with OGFetcher(timeout=timeout, retries=retries) as fetcher:
-        for i, url in enumerate(pending_urls, 1):
-            print(f"  [{i}/{len(pending_urls)}] {url[:80]}...", end=" ", flush=True)
-
-            result = fetcher.fetch(url)
-            update_og_metadata(conn, result)
+        # Filter out own-plurk URLs (safety net - extract should skip these too)
+        own_plurk_urls = [url for url in pending_urls if is_own_plurk_url(url, conn)]
+        if own_plurk_urls:
+            for url in own_plurk_urls:
+                conn.execute("DELETE FROM link_metadata WHERE url = ?", (url,))
             conn.commit()
+            pending_urls = [url for url in pending_urls if url not in set(own_plurk_urls)]
+            print(f"Skipped {len(own_plurk_urls)} own-plurk URL(s)")
 
-            stats[result.status] += 1
-            print(result.status)
+        if not pending_urls:
+            print("No pending URLs to fetch.")
+            return 0
 
-    conn.close()
+        # Fetch OG metadata
+        stats = {"success": 0, "no_og": 0, "image": 0, "timeout": 0, "failed": 0}
 
-    print(f"\nCompleted: {stats['success']} success, {stats['no_og']} no_og, "
-          f"{stats['image']} image, {stats['timeout']} timeout, {stats['failed']} failed")
+        with OGFetcher(timeout=timeout, retries=retries) as fetcher:
+            for i, url in enumerate(pending_urls, 1):
+                print(f"  [{i}/{len(pending_urls)}] {url[:80]}...", end=" ", flush=True)
 
-    return 0
+                result = fetcher.fetch(url)
+                try:
+                    update_og_metadata(conn, result)
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    print(f"DB error: {e}")
+                    stats["failed"] += 1
+                    continue
+
+                stats[result.status] += 1
+                print(result.status)
+
+        print(f"\nCompleted: {stats['success']} success, {stats['no_og']} no_og, "
+              f"{stats['image']} image, {stats['timeout']} timeout, {stats['failed']} failed")
+
+        return 0
+    finally:
+        conn.close()
 
 
 def cmd_status(args) -> int:

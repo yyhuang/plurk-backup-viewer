@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from database import (
+    connect_with_icu,
     create_schema,
     import_plurks,
     import_responses,
-    load_icu_extension,
     resolve_icu_extension,
 )
 from utils import (
@@ -80,25 +80,20 @@ def build_database(
     Returns:
         BuildResult with counts and file lists
     """
-    import sqlite3
     from datetime import date
 
     plurks_dir = backup_path / "data" / "plurks"
     responses_dir = backup_path / "data" / "responses"
 
-    # Determine tokenizer
-    tokenizer = "unicode61"
-    if icu_extension_path:
-        tokenizer = "icu zh"
-
     # Check if database exists (incremental update)
     is_incremental = db_path.exists()
 
+    # Open connection and load ICU extension (if available)
+    conn, icu_loaded = connect_with_icu(db_path, icu_extension_path)
+    tokenizer = "icu zh" if icu_loaded else "unicode61"
+
     if is_incremental:
         print(f"Updating existing database: {db_path}")
-        conn = sqlite3.connect(db_path)
-        if icu_extension_path:
-            load_icu_extension(conn, icu_extension_path)
         scan_start, scan_end = calculate_scan_range(conn, date.today())
         if scan_start:
             print(f"Scanning files from {scan_start} to {scan_end}")
@@ -106,9 +101,6 @@ def build_database(
             print("Database is empty, importing all files")
     else:
         print(f"Creating new database: {db_path}")
-        conn = sqlite3.connect(db_path)
-        if icu_extension_path:
-            load_icu_extension(conn, icu_extension_path)
         create_schema(conn, tokenizer)
         scan_start, scan_end = None, None
 
@@ -210,6 +202,7 @@ def cmd_init(backup_path: Path, icu_extension: str | None = None) -> int:
             response_files=result.response_files,
             db_path=db_path,
             tokenizer=tokenizer,
+            icu_extension_path=icu_path,
             progress_callback=lambda msg: print(f"  {msg}"),
         )
         print(

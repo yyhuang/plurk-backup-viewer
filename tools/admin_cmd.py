@@ -17,7 +17,7 @@ import threading
 import zipfile
 from pathlib import Path
 
-from database import resolve_icu_extension
+from database import connect_with_icu, resolve_icu_extension
 from init_cmd import build_database, create_config
 from links_cmd import (
     OGFetcher,
@@ -229,6 +229,7 @@ def run_init(data_dir: Path, tracker: TaskTracker, on_complete=None) -> bool:
             response_files=result.response_files,
             db_path=db_path,
             tokenizer=tokenizer_name,
+            icu_extension_path=icu_path,
             progress_callback=lambda msg: tracker.update(log_line=msg),
         )
         tracker.update(log_line=(
@@ -285,6 +286,9 @@ def run_links_extract(data_dir: Path, start_month: str, end_month: str,
         plurks_dir = backup_path / "data" / "plurks"
         responses_dir = backup_path / "data" / "responses"
 
+        # Resolve ICU extension for FTS5 triggers
+        icu_path = resolve_icu_extension()
+
         # Determine scan range
         if start_month and end_month:
             scan_start = f"{start_month[:4]}-{start_month[4:]}"
@@ -306,6 +310,7 @@ def run_links_extract(data_dir: Path, start_month: str, end_month: str,
             plurk_files=plurk_files,
             response_files=response_files,
             db_path=db_path,
+            icu_extension_path=icu_path,
             progress_callback=lambda msg: tracker.update(log_line=msg),
         )
 
@@ -335,15 +340,15 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
         tracker.finish(False, "Database not found. Build database first.")
         return False
 
+    conn = None
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn, _ = connect_with_icu(db_path)
 
         # Check if link_metadata table exists
         table_check = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata'"
         ).fetchone()
         if not table_check:
-            conn.close()
             tracker.finish(False, "No links extracted yet. Run Extract Links first.")
             return False
 
@@ -355,7 +360,6 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
         pending_urls = [row[0] for row in rows]
 
         if not pending_urls:
-            conn.close()
             tracker.finish(True, "No pending URLs to fetch.")
             return True
 
@@ -371,7 +375,6 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
             tracker.update(log_line=f"Skipped {len(own_plurk_urls)} own-plurk URL(s)")
 
         if not pending_urls:
-            conn.close()
             tracker.finish(True, "No pending URLs to fetch.")
             return True
 
@@ -386,17 +389,20 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
                     )
 
                     result = fetcher.fetch(url)
-                    update_og_metadata(conn, result)
-                    conn.commit()
+                    try:
+                        update_og_metadata(conn, result)
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        tracker.update(log_line=f"  → DB error: {e}")
+                        stats["failed"] += 1
+                        continue
 
                     stats[result.status] = stats.get(result.status, 0) + 1
                     tracker.update(log_line=f"  → {result.status}")
         except ImportError:
-            conn.close()
             tracker.finish(False, "Playwright not installed. Run: uv add playwright && playwright install chromium")
             return False
-
-        conn.close()
 
         summary = (f"Fetch complete: {stats['success']} success, {stats['no_og']} no_og, "
                    f"{stats['image']} image, {stats['timeout']} timeout, {stats['failed']} failed")
@@ -406,6 +412,9 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
     except Exception as e:
         tracker.finish(False, f"Fetch failed: {e}")
         return False
+    finally:
+        if conn:
+            conn.close()
 
 
 class AdminHandler(http.server.BaseHTTPRequestHandler):

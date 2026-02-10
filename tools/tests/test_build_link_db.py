@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -16,7 +17,9 @@ from links_cmd import (
     is_own_plurk_url,
     process_plurk_file,
     process_response_file,
+    update_og_metadata,
     upsert_link,
+    OGResult,
 )
 
 
@@ -681,6 +684,257 @@ class TestExtractLinksFromFiles:
 
         assert result["own_plurk_count"] == 1
         assert result["new_count"] == 0
+
+
+class TestICUExtensionLoading:
+    """Tests that ICU extension is loaded when writing to FTS-triggered tables.
+
+    The link_metadata_fts table may use 'icu zh' tokenizer. Any INSERT/UPDATE
+    on link_metadata fires FTS triggers that need the ICU extension loaded.
+    Without it: 'no such tokenizer: icu'.
+    """
+
+    def _setup_db_with_icu_fts(self, db_path: Path) -> None:
+        """Create a DB where link_metadata_fts uses 'icu zh' tokenizer.
+
+        We can't actually create with 'icu zh' (no extension in tests),
+        so we simulate the scenario: create with unicode61, then verify
+        the code paths that load ICU are exercised.
+        """
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+    def _setup_backup(self, tmp_path: Path) -> tuple[list[Path], list[Path]]:
+        """Create minimal backup files with a URL."""
+        plurk_file = tmp_path / "2018_10.js"
+        plurk_file.write_text(
+            'BackupData.plurks["2018_10"]=['
+            '{"id": 100, "base_id": "abc", "content_raw": "See https://example.com/test"}'
+            '];'
+        )
+        return [plurk_file], []
+
+    def test_extract_loads_icu_extension(self, tmp_path: Path):
+        """extract_links_from_files loads ICU extension when path provided."""
+        db_path = tmp_path / "test.db"
+        self._setup_db_with_icu_fts(db_path)
+        plurk_files, response_files = self._setup_backup(tmp_path)
+
+        with patch("database.load_icu_extension") as mock_load:
+            extract_links_from_files(
+                plurk_files=plurk_files,
+                response_files=response_files,
+                db_path=db_path,
+                icu_extension_path="/fake/libfts5_icu.dylib",
+            )
+            mock_load.assert_called_once()
+            # load_icu_extension(conn, extension_path) - check second positional arg
+            assert mock_load.call_args[0][1] == "/fake/libfts5_icu.dylib"
+
+    def test_extract_skips_icu_when_no_path(self, tmp_path: Path):
+        """extract_links_from_files does not load ICU when path is None."""
+        db_path = tmp_path / "test.db"
+        self._setup_db_with_icu_fts(db_path)
+        plurk_files, response_files = self._setup_backup(tmp_path)
+
+        with patch("database.load_icu_extension") as mock_load, \
+             patch("database.resolve_icu_extension", return_value=None):
+            extract_links_from_files(
+                plurk_files=plurk_files,
+                response_files=response_files,
+                db_path=db_path,
+                icu_extension_path=None,
+            )
+            mock_load.assert_not_called()
+
+    def test_update_og_metadata_with_fts_triggers(self, tmp_path: Path):
+        """Verify update_og_metadata works when FTS triggers are active.
+
+        The link_metadata_fts triggers fire on every UPDATE to link_metadata.
+        If the FTS table was created with 'icu zh' tokenizer, the ICU extension
+        must be loaded on the connection — otherwise: 'no such tokenizer: icu'.
+        This test uses unicode61 (built-in) to verify the trigger path works.
+        """
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+
+        # Create table + FTS + triggers first, then insert data
+        create_link_metadata_table(conn)
+
+        conn.execute(
+            "INSERT INTO link_metadata (url, sources, status) VALUES (?, ?, ?)",
+            ("https://example.com", '{"plurk_ids": [1]}', "pending"),
+        )
+        conn.commit()
+
+        # UPDATE fires the link_metadata_au trigger → writes to FTS
+        result = OGResult(
+            url="https://example.com",
+            status="success",
+            title="Example",
+            description="An example page",
+        )
+        update_og_metadata(conn, result)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT og_title, status FROM link_metadata WHERE url = ?",
+            ("https://example.com",),
+        ).fetchone()
+        assert row[0] == "Example"
+        assert row[1] == "success"
+
+        # Verify FTS was updated too (trigger worked)
+        fts_row = conn.execute(
+            "SELECT og_title FROM link_metadata_fts WHERE link_metadata_fts MATCH ?",
+            ('"Example"',),
+        ).fetchone()
+        assert fts_row is not None
+        assert fts_row[0] == "Example"
+        conn.close()
+
+
+class TestTransactionRollback:
+    """Tests that DB errors during fetch don't leave the database locked.
+
+    If update_og_metadata raises (e.g., 'no such tokenizer: icu'), the
+    transaction must be rolled back so the connection and database remain
+    usable. Without rollback, the dirty transaction locks the database.
+    """
+
+    def _create_db_with_pending_urls(self, db_path: Path, urls: list[str]) -> None:
+        """Create a DB with link_metadata table and pending URLs."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE plurks (id INTEGER PRIMARY KEY)")
+        create_link_metadata_table(conn)
+        for url in urls:
+            conn.execute(
+                "INSERT INTO link_metadata (url, sources, status) VALUES (?, ?, ?)",
+                (url, '{"plurk_ids": [1]}', "pending"),
+            )
+        conn.commit()
+        conn.close()
+
+    def test_rollback_after_update_error(self, tmp_path: Path):
+        """After a failed update_og_metadata, rollback keeps the DB usable."""
+        db_path = tmp_path / "test.db"
+        self._create_db_with_pending_urls(db_path, ["https://example.com"])
+
+        conn = sqlite3.connect(str(db_path))
+        create_link_metadata_table(conn)
+
+        # Simulate a trigger error by dropping the FTS table
+        # (update trigger references it, so UPDATE will fail)
+        conn.execute("DROP TABLE link_metadata_fts")
+        conn.commit()
+
+        result = OGResult(
+            url="https://example.com",
+            status="success",
+            title="Test",
+        )
+
+        # update_og_metadata should raise because the trigger can't
+        # write to the now-missing FTS table
+        with pytest.raises(sqlite3.OperationalError):
+            update_og_metadata(conn, result)
+
+        # Without rollback, the connection has a dirty transaction
+        # and the DB would be locked. Rollback fixes it.
+        conn.rollback()
+
+        # Verify the connection is still usable after rollback
+        row = conn.execute(
+            "SELECT status FROM link_metadata WHERE url = ?",
+            ("https://example.com",),
+        ).fetchone()
+        assert row[0] == "pending"  # unchanged, update was rolled back
+        conn.close()
+
+    def test_dirty_transaction_locks_db(self, tmp_path: Path):
+        """A dirty transaction (no commit/rollback) locks the DB for others."""
+        db_path = tmp_path / "test.db"
+        self._create_db_with_pending_urls(db_path, ["https://example.com"])
+
+        conn = sqlite3.connect(str(db_path))
+        # Start a write transaction without committing
+        conn.execute(
+            "UPDATE link_metadata SET status = 'fetching' WHERE url = ?",
+            ("https://example.com",),
+        )
+        # deliberately skip commit — simulates what happens when
+        # update_og_metadata raises and we don't rollback
+
+        # A second connection should fail to write (DB is locked)
+        conn2 = sqlite3.connect(str(db_path), timeout=0.1)
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            conn2.execute(
+                "UPDATE link_metadata SET status = 'failed' WHERE url = ?",
+                ("https://example.com",),
+            )
+        conn2.close()
+        conn.close()
+
+    def test_rollback_releases_lock(self, tmp_path: Path):
+        """After rollback, another connection can write to the DB."""
+        db_path = tmp_path / "test.db"
+        self._create_db_with_pending_urls(db_path, ["https://example.com"])
+
+        conn = sqlite3.connect(str(db_path))
+        # Start a write transaction
+        conn.execute(
+            "UPDATE link_metadata SET status = 'fetching' WHERE url = ?",
+            ("https://example.com",),
+        )
+        # Rollback releases the lock
+        conn.rollback()
+
+        # A second connection should now be able to write
+        conn2 = sqlite3.connect(str(db_path), timeout=0.1)
+        conn2.execute(
+            "UPDATE link_metadata SET status = 'failed' WHERE url = ?",
+            ("https://example.com",),
+        )
+        conn2.commit()
+
+        row = conn2.execute(
+            "SELECT status FROM link_metadata WHERE url = ?",
+            ("https://example.com",),
+        ).fetchone()
+        assert row[0] == "failed"
+        conn2.close()
+        conn.close()
+
+    def test_close_releases_lock(self, tmp_path: Path):
+        """Closing connection with dirty transaction releases the lock."""
+        db_path = tmp_path / "test.db"
+        self._create_db_with_pending_urls(db_path, ["https://example.com"])
+
+        conn = sqlite3.connect(str(db_path))
+        # Start a write transaction
+        conn.execute(
+            "UPDATE link_metadata SET status = 'fetching' WHERE url = ?",
+            ("https://example.com",),
+        )
+        # Close without commit — implicitly rolls back
+        conn.close()
+
+        # Another connection should be able to write
+        conn2 = sqlite3.connect(str(db_path), timeout=0.1)
+        row = conn2.execute(
+            "SELECT status FROM link_metadata WHERE url = ?",
+            ("https://example.com",),
+        ).fetchone()
+        assert row[0] == "pending"  # rolled back, not 'fetching'
+
+        conn2.execute(
+            "UPDATE link_metadata SET status = 'failed' WHERE url = ?",
+            ("https://example.com",),
+        )
+        conn2.commit()
+        conn2.close()
 
 
 # Note: CLI tests for links_cmd.py were removed since the standalone CLI was
