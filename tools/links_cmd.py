@@ -250,6 +250,7 @@ def process_plurk_file(path: Path) -> dict[str, dict]:
     """Extract URLs and their source plurk IDs from a plurk file."""
     _, plurks = parse_plurk_file(path)
     url_sources: dict[str, dict] = {}
+    month = path.stem  # e.g., "2024_01" from "2024_01.js"
 
     for p in plurks:
         content = p.get("content_raw", "")
@@ -257,7 +258,7 @@ def process_plurk_file(path: Path) -> dict[str, dict]:
 
         for url in extract_urls(content):
             if url not in url_sources:
-                url_sources[url] = {"plurk_ids": [], "response_ids": []}
+                url_sources[url] = {"plurk_ids": [], "response_ids": [], "month": month}
             if plurk_id not in url_sources[url]["plurk_ids"]:
                 url_sources[url]["plurk_ids"].append(plurk_id)
 
@@ -275,7 +276,7 @@ def process_response_file(path: Path) -> dict[str, dict]:
 
         for url in extract_urls(content):
             if url not in url_sources:
-                url_sources[url] = {"plurk_ids": [], "response_ids": []}
+                url_sources[url] = {"plurk_ids": [], "response_ids": [], "month": None}
             if response_id not in url_sources[url]["response_ids"]:
                 url_sources[url]["response_ids"].append(response_id)
 
@@ -286,7 +287,7 @@ def merge_url_sources(base: dict[str, dict], new: dict[str, dict]) -> dict[str, 
     """Merge two URL source dictionaries."""
     for url, sources in new.items():
         if url not in base:
-            base[url] = {"plurk_ids": [], "response_ids": []}
+            base[url] = {"plurk_ids": [], "response_ids": [], "month": None}
 
         for pid in sources.get("plurk_ids", []):
             if pid not in base[url]["plurk_ids"]:
@@ -295,6 +296,13 @@ def merge_url_sources(base: dict[str, dict], new: dict[str, dict]) -> dict[str, 
         for rid in sources.get("response_ids", []):
             if rid not in base[url]["response_ids"]:
                 base[url]["response_ids"].append(rid)
+
+        # Keep the newest (max) month across merges
+        new_month = sources.get("month")
+        if new_month is not None:
+            old_month = base[url].get("month")
+            if old_month is None or new_month > old_month:
+                base[url]["month"] = new_month
 
     return base
 
@@ -319,7 +327,8 @@ def create_link_metadata_table(
             og_site_name TEXT,
             sources JSON,
             status TEXT DEFAULT 'pending',
-            fetched_at TEXT
+            fetched_at TEXT,
+            source_month TEXT
         );
 
         -- FTS5 for searching OG metadata
@@ -352,25 +361,43 @@ def create_link_metadata_table(
     """)
 
 
-def upsert_link(conn: sqlite3.Connection, url: str, new_sources: dict) -> bool:
+def ensure_source_month_column(conn: sqlite3.Connection) -> None:
+    """Add source_month column to link_metadata if it doesn't exist.
+
+    Needed for existing databases created before this column was added.
+    """
+    cols = conn.execute("PRAGMA table_info(link_metadata)").fetchall()
+    col_names = {c[1] for c in cols}
+    if "source_month" not in col_names:
+        conn.execute("ALTER TABLE link_metadata ADD COLUMN source_month TEXT")
+
+
+def upsert_link(conn: sqlite3.Connection, url: str, new_sources: dict, month: str | None = None) -> bool:
     """Insert or merge a link into the database.
+
+    Args:
+        conn: SQLite connection
+        url: The URL to upsert
+        new_sources: Source dict with plurk_ids and response_ids
+        month: Source month key (e.g., "2024_01") for chronological ordering
 
     Returns True if new URL inserted, False if existing URL merged.
     """
     existing = conn.execute(
-        "SELECT sources FROM link_metadata WHERE url = ?", (url,)
+        "SELECT sources, source_month FROM link_metadata WHERE url = ?", (url,)
     ).fetchone()
 
     if existing is None:
         # Set status based on URL: 'image' for image URLs, 'pending' otherwise
         status = "image" if is_image_url(url) else "pending"
         conn.execute(
-            "INSERT INTO link_metadata (url, sources, status) VALUES (?, ?, ?)",
-            (url, json.dumps(new_sources), status),
+            "INSERT INTO link_metadata (url, sources, status, source_month) VALUES (?, ?, ?, ?)",
+            (url, json.dumps(new_sources), status, month),
         )
         return True
     else:
         old_sources = json.loads(existing[0])
+        old_month = existing[1]
         merged_plurk_ids = list(
             set(old_sources.get("plurk_ids", []) + new_sources.get("plurk_ids", []))
         )
@@ -381,10 +408,18 @@ def upsert_link(conn: sqlite3.Connection, url: str, new_sources: dict) -> bool:
             "plurk_ids": sorted(merged_plurk_ids),
             "response_ids": sorted(merged_response_ids),
         }
-        conn.execute(
-            "UPDATE link_metadata SET sources = ? WHERE url = ?",
-            (json.dumps(merged), url),
-        )
+        # Keep the newest month
+        new_month = month
+        if new_month is not None and (old_month is None or new_month > old_month):
+            conn.execute(
+                "UPDATE link_metadata SET sources = ?, source_month = ? WHERE url = ?",
+                (json.dumps(merged), new_month, url),
+            )
+        else:
+            conn.execute(
+                "UPDATE link_metadata SET sources = ? WHERE url = ?",
+                (json.dumps(merged), url),
+            )
         return False
 
 
@@ -448,6 +483,7 @@ def extract_links_from_files(
     conn, icu_loaded = connect_with_icu(db_path, icu_extension_path)
     try:
         create_link_metadata_table(conn, tokenizer)
+        ensure_source_month_column(conn)
 
         new_count = 0
         merged_count = 0
@@ -456,7 +492,8 @@ def extract_links_from_files(
             if is_own_plurk_url(url, conn):
                 own_plurk_count += 1
                 continue
-            if upsert_link(conn, url, sources):
+            month = sources.get("month")
+            if upsert_link(conn, url, sources, month=month):
                 new_count += 1
             else:
                 merged_count += 1
@@ -577,7 +614,7 @@ def cmd_fetch_previews_internal(
         else:
             # Get all pending URLs
             limit_clause = f"LIMIT {args.limit}" if args.limit else ""
-            query = f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY rowid DESC {limit_clause}"
+            query = f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY source_month DESC {limit_clause}"
             rows = conn.execute(query).fetchall()
 
         pending_urls = [row[0] for row in rows]

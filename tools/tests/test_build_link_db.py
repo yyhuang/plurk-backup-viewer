@@ -10,6 +10,7 @@ import pytest
 from links_cmd import (
     PLURK_URL_PATTERN,
     create_link_metadata_table,
+    ensure_source_month_column,
     extract_links_from_files,
     extract_urls,
     is_image_content_type,
@@ -182,7 +183,7 @@ class TestProcessPlurkFile:
         url_sources = process_plurk_file(file)
 
         assert "https://example.com" in url_sources
-        assert url_sources["https://example.com"] == {"plurk_ids": [123], "response_ids": []}
+        assert url_sources["https://example.com"] == {"plurk_ids": [123], "response_ids": [], "month": "2018_10"}
 
     def test_process_plurk_file_multiple_urls_same_plurk(self, tmp_path: Path):
         """Handle multiple URLs in same plurk."""
@@ -219,7 +220,7 @@ class TestProcessResponseFile:
         url_sources = process_response_file(file)
 
         assert "https://example.com" in url_sources
-        assert url_sources["https://example.com"] == {"plurk_ids": [], "response_ids": [789]}
+        assert url_sources["https://example.com"] == {"plurk_ids": [], "response_ids": [789], "month": None}
 
 
 class TestUpsertLink:
@@ -307,6 +308,7 @@ class TestCreateLinkMetadataTable:
         assert "sources" in col_names
         assert "status" in col_names
         assert "fetched_at" in col_names
+        assert "source_month" in col_names
 
         # Check FTS5 table exists
         result = conn.execute(
@@ -319,6 +321,115 @@ class TestCreateLinkMetadataTable:
         conn = sqlite3.connect(":memory:")
         create_link_metadata_table(conn)
         create_link_metadata_table(conn)  # Should not raise
+
+
+class TestSourceMonth:
+    """Tests for source_month tracking."""
+
+    @pytest.fixture
+    def db(self):
+        """Create in-memory database with schema."""
+        conn = sqlite3.connect(":memory:")
+        create_link_metadata_table(conn)
+        return conn
+
+    def test_upsert_stores_month(self, db: sqlite3.Connection):
+        """Upsert stores source_month on insert."""
+        sources = {"plurk_ids": [123], "response_ids": []}
+        upsert_link(db, "https://example.com", sources, month="2024_01")
+
+        row = db.execute("SELECT source_month FROM link_metadata WHERE url = ?",
+                        ("https://example.com",)).fetchone()
+        assert row[0] == "2024_01"
+
+    def test_upsert_keeps_newer_month(self, db: sqlite3.Connection):
+        """Merge keeps the newer month."""
+        upsert_link(db, "https://example.com", {"plurk_ids": [1], "response_ids": []}, month="2020_01")
+        upsert_link(db, "https://example.com", {"plurk_ids": [2], "response_ids": []}, month="2024_06")
+
+        row = db.execute("SELECT source_month FROM link_metadata WHERE url = ?",
+                        ("https://example.com",)).fetchone()
+        assert row[0] == "2024_06"
+
+    def test_upsert_does_not_downgrade_month(self, db: sqlite3.Connection):
+        """Merge does not downgrade to an older month."""
+        upsert_link(db, "https://example.com", {"plurk_ids": [1], "response_ids": []}, month="2024_06")
+        upsert_link(db, "https://example.com", {"plurk_ids": [2], "response_ids": []}, month="2020_01")
+
+        row = db.execute("SELECT source_month FROM link_metadata WHERE url = ?",
+                        ("https://example.com",)).fetchone()
+        assert row[0] == "2024_06"
+
+    def test_upsert_null_month_does_not_overwrite(self, db: sqlite3.Connection):
+        """Merge with None month does not overwrite existing month."""
+        upsert_link(db, "https://example.com", {"plurk_ids": [1], "response_ids": []}, month="2024_01")
+        upsert_link(db, "https://example.com", {"plurk_ids": [2], "response_ids": []}, month=None)
+
+        row = db.execute("SELECT source_month FROM link_metadata WHERE url = ?",
+                        ("https://example.com",)).fetchone()
+        assert row[0] == "2024_01"
+
+    def test_upsert_upgrades_from_null(self, db: sqlite3.Connection):
+        """Merge upgrades from NULL to a real month."""
+        upsert_link(db, "https://example.com", {"plurk_ids": [1], "response_ids": []}, month=None)
+        upsert_link(db, "https://example.com", {"plurk_ids": [2], "response_ids": []}, month="2024_01")
+
+        row = db.execute("SELECT source_month FROM link_metadata WHERE url = ?",
+                        ("https://example.com",)).fetchone()
+        assert row[0] == "2024_01"
+
+    def test_ensure_source_month_column_adds_column(self):
+        """ensure_source_month_column adds column to existing table without it."""
+        conn = sqlite3.connect(":memory:")
+        # Create old schema without source_month
+        conn.execute("""
+            CREATE TABLE link_metadata (
+                url TEXT PRIMARY KEY,
+                og_title TEXT,
+                sources JSON,
+                status TEXT DEFAULT 'pending'
+            )
+        """)
+        ensure_source_month_column(conn)
+
+        cols = conn.execute("PRAGMA table_info(link_metadata)").fetchall()
+        col_names = [c[1] for c in cols]
+        assert "source_month" in col_names
+        conn.close()
+
+    def test_ensure_source_month_column_idempotent(self):
+        """ensure_source_month_column is safe to call on new schema."""
+        conn = sqlite3.connect(":memory:")
+        create_link_metadata_table(conn)
+        # Should not raise even though column already exists
+        ensure_source_month_column(conn)
+        conn.close()
+
+    def test_merge_url_sources_keeps_max_month(self):
+        """merge_url_sources keeps the newest month."""
+        from links_cmd import merge_url_sources
+
+        base = {
+            "https://a.com": {"plurk_ids": [1], "response_ids": [], "month": "2020_01"},
+        }
+        new = {
+            "https://a.com": {"plurk_ids": [2], "response_ids": [], "month": "2024_06"},
+        }
+        result = merge_url_sources(base, new)
+        assert result["https://a.com"]["month"] == "2024_06"
+
+    def test_merge_url_sources_none_does_not_downgrade(self):
+        """merge_url_sources with None month preserves existing."""
+        from links_cmd import merge_url_sources
+
+        base = {
+            "https://a.com": {"plurk_ids": [1], "response_ids": [], "month": "2020_01"},
+        }
+        new = {
+            "https://a.com": {"plurk_ids": [], "response_ids": [5], "month": None},
+        }
+        result = merge_url_sources(base, new)
+        assert result["https://a.com"]["month"] == "2020_01"
 
 
 class TestOGFetcherTitleFallback:

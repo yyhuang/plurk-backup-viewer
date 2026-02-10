@@ -355,7 +355,7 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
         # Get pending URLs
         limit_clause = f"LIMIT {limit}" if limit else ""
         rows = conn.execute(
-            f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY rowid DESC {limit_clause}"
+            f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY source_month DESC {limit_clause}"
         ).fetchall()
         pending_urls = [row[0] for row in rows]
 
