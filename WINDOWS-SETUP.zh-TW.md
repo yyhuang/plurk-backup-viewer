@@ -78,12 +78,12 @@ WSL2（Windows Subsystem for Linux）讓 Windows 可以執行 Linux 工具。Doc
 
 現在你可以照著 [README](README.zh-TW.md) 的說明操作了。以下是 Windows 上的具體步驟：
 
-1. 選擇一個要放置專案的資料夾。例如桌面或文件資料夾
+1. 選擇一個要放置專案的資料夾。例如文件資料夾
 
-2. 開啟 **PowerShell**，切換到該資料夾。例如切換到桌面：
+2. 開啟 **PowerShell**，切換到該資料夾：
 
    ```
-   cd ~/Desktop
+   cd ~/Documents
    ```
 
 3. 下載專案：
@@ -129,7 +129,7 @@ WSL2（Windows Subsystem for Linux）讓 Windows 可以執行 Linux 工具。Doc
 3. 進入專案資料夾並啟動：
 
    ```
-   cd ~/Desktop/plurk-backup-viewer
+   cd ~/Documents/plurk-backup-viewer
    docker compose up
    ```
 

@@ -78,12 +78,12 @@ After restarting, a window may pop up asking you to create a Linux username and 
 
 Now you can follow the main [README](README.md) instructions. Here are the Windows-specific steps:
 
-1. Choose a folder where you want to put the project. For example, your Desktop or Documents folder
+1. Choose a folder where you want to put the project. For example, your Documents folder
 
-2. Open **PowerShell** and navigate to that folder. For example, to go to your Desktop:
+2. Open **PowerShell** and navigate to that folder:
 
    ```
-   cd ~/Desktop
+   cd ~/Documents
    ```
 
 3. Download the project:
@@ -94,7 +94,7 @@ Now you can follow the main [README](README.md) instructions. Here are the Windo
 
    > If you see an error that `git` is not recognized, you can download the project as a ZIP file instead:
    > go to the GitHub page, click the green **Code** button, then **Download ZIP**.
-   > Extract the ZIP to your Desktop and rename the folder to `plurk-backup-viewer`.
+   > Extract the ZIP to your Documents folder and rename the folder to `plurk-backup-viewer`.
 
 4. Go into the project folder:
 
@@ -129,7 +129,7 @@ You do not need to repeat the setup. Just:
 3. Go to the project folder and start it:
 
    ```
-   cd ~/Desktop/plurk-backup-viewer
+   cd ~/Documents/plurk-backup-viewer
    docker compose up
    ```
 
