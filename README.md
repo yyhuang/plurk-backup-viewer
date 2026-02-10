@@ -7,6 +7,7 @@ Enhanced viewer for Plurk backup data with full-text search, link search, and CJ
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/)
+- Windows users: see [Windows Setup Guide](WINDOWS-SETUP.md) for step-by-step WSL2 + Docker installation
 
 ## Quick Start
 

@@ -7,6 +7,7 @@
 ## 前置需求
 
 - [Docker](https://docs.docker.com/get-docker/)
+- Windows 使用者：請參考 [Windows 安裝指南](WINDOWS-SETUP.zh-TW.md)，有逐步的 WSL2 + Docker 安裝說明
 
 ## 快速開始
 
