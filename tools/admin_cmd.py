@@ -210,14 +210,12 @@ def run_init(data_dir: Path, tracker: TaskTracker, on_complete=None) -> bool:
         tracker.update(log_line="Creating config.json...")
         create_config(backup_path, icu_path, config_dir=data_dir)
 
-        # Build database
-        tracker.update(log_line="Building database...")
+        # Build database (incremental if DB already exists)
         db_path = data_dir / "plurks.db"
-
-        # Delete existing DB to force full rebuild
         if db_path.exists():
-            db_path.unlink()
-            tracker.update(log_line="Removed existing database")
+            tracker.update(log_line="Updating existing database...")
+        else:
+            tracker.update(log_line="Building database...")
 
         result = build_database(backup_path, db_path, icu_path)
         tracker.update(log_line=f"Database: {result.plurk_count:,} plurks, {result.response_count:,} responses")
@@ -355,9 +353,9 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
         # Get pending URLs
         limit_clause = f"LIMIT {limit}" if limit else ""
         rows = conn.execute(
-            f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY source_month DESC {limit_clause}"
+            f"SELECT url, source_month FROM link_metadata WHERE status = 'pending' ORDER BY source_month DESC {limit_clause}"
         ).fetchall()
-        pending_urls = [row[0] for row in rows]
+        pending_urls = [(row[0], row[1]) for row in rows]
 
         if not pending_urls:
             tracker.finish(True, "No pending URLs to fetch.")
@@ -366,12 +364,12 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
         tracker.update(log_line=f"Fetching OG metadata for {len(pending_urls)} URLs...")
 
         # Filter out own-plurk URLs (safety net)
-        own_plurk_urls = [url for url in pending_urls if is_own_plurk_url(url, conn)]
+        own_plurk_urls = {url for url, _ in pending_urls if is_own_plurk_url(url, conn)}
         if own_plurk_urls:
             for url in own_plurk_urls:
                 conn.execute("DELETE FROM link_metadata WHERE url = ?", (url,))
             conn.commit()
-            pending_urls = [url for url in pending_urls if url not in set(own_plurk_urls)]
+            pending_urls = [(url, month) for url, month in pending_urls if url not in own_plurk_urls]
             tracker.update(log_line=f"Skipped {len(own_plurk_urls)} own-plurk URL(s)")
 
         if not pending_urls:
@@ -382,10 +380,11 @@ def run_links_fetch(data_dir: Path, limit: int, tracker: TaskTracker) -> bool:
 
         try:
             with OGFetcher() as fetcher:
-                for i, url in enumerate(pending_urls, 1):
+                for i, (url, month) in enumerate(pending_urls, 1):
+                    month_tag = f"({month}) " if month else ""
                     tracker.update(
                         progress=f"{i}/{len(pending_urls)}",
-                        log_line=f"[{i}/{len(pending_urls)}] {url[:80]}..."
+                        log_line=f"[{i}/{len(pending_urls)}] {month_tag}{url[:80]}..."
                     )
 
                     result = fetcher.fetch(url)

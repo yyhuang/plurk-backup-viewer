@@ -358,6 +358,10 @@ def create_link_metadata_table(
             INSERT INTO link_metadata_fts(rowid, og_title, og_description, og_site_name)
             VALUES (new.rowid, new.og_title, new.og_description, new.og_site_name);
         END;
+
+        -- Index for fetch queue ordering (WHERE status + ORDER BY source_month)
+        CREATE INDEX IF NOT EXISTS idx_link_metadata_status_month
+            ON link_metadata(status, source_month DESC);
     """)
 
 
@@ -370,6 +374,11 @@ def ensure_source_month_column(conn: sqlite3.Connection) -> None:
     col_names = {c[1] for c in cols}
     if "source_month" not in col_names:
         conn.execute("ALTER TABLE link_metadata ADD COLUMN source_month TEXT")
+    # Ensure index exists (for existing databases)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_link_metadata_status_month
+            ON link_metadata(status, source_month DESC)
+    """)
 
 
 def upsert_link(conn: sqlite3.Connection, url: str, new_sources: dict, month: str | None = None) -> bool:
@@ -609,15 +618,15 @@ def cmd_fetch_previews_internal(
         if url_filter:
             # Filter to specific URLs that are pending
             placeholders = ",".join("?" * len(url_filter))
-            query = f"SELECT url FROM link_metadata WHERE status = 'pending' AND url IN ({placeholders})"
+            query = f"SELECT url, source_month FROM link_metadata WHERE status = 'pending' AND url IN ({placeholders})"
             rows = conn.execute(query, url_filter).fetchall()
         else:
             # Get all pending URLs
             limit_clause = f"LIMIT {args.limit}" if args.limit else ""
-            query = f"SELECT url FROM link_metadata WHERE status = 'pending' ORDER BY source_month DESC {limit_clause}"
+            query = f"SELECT url, source_month FROM link_metadata WHERE status = 'pending' ORDER BY source_month DESC {limit_clause}"
             rows = conn.execute(query).fetchall()
 
-        pending_urls = [row[0] for row in rows]
+        pending_urls = [(row[0], row[1]) for row in rows]
 
         if not pending_urls:
             print("No pending URLs to fetch.")
@@ -626,12 +635,12 @@ def cmd_fetch_previews_internal(
         print(f"Fetching OG metadata for {len(pending_urls)} URLs...")
 
         # Filter out own-plurk URLs (safety net - extract should skip these too)
-        own_plurk_urls = [url for url in pending_urls if is_own_plurk_url(url, conn)]
+        own_plurk_urls = {url for url, _ in pending_urls if is_own_plurk_url(url, conn)}
         if own_plurk_urls:
             for url in own_plurk_urls:
                 conn.execute("DELETE FROM link_metadata WHERE url = ?", (url,))
             conn.commit()
-            pending_urls = [url for url in pending_urls if url not in set(own_plurk_urls)]
+            pending_urls = [(url, month) for url, month in pending_urls if url not in own_plurk_urls]
             print(f"Skipped {len(own_plurk_urls)} own-plurk URL(s)")
 
         if not pending_urls:
@@ -642,8 +651,9 @@ def cmd_fetch_previews_internal(
         stats = {"success": 0, "no_og": 0, "image": 0, "timeout": 0, "failed": 0}
 
         with OGFetcher(timeout=timeout, retries=retries) as fetcher:
-            for i, url in enumerate(pending_urls, 1):
-                print(f"  [{i}/{len(pending_urls)}] {url[:80]}...", end=" ", flush=True)
+            for i, (url, month) in enumerate(pending_urls, 1):
+                month_tag = f"({month}) " if month else ""
+                print(f"  [{i}/{len(pending_urls)}] {month_tag}{url[:80]}...", end=" ", flush=True)
 
                 result = fetcher.fetch(url)
                 try:
