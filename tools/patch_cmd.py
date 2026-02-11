@@ -35,28 +35,22 @@ def patch_index_html(backup_path: Path) -> bool:
     content = index_file.read_text(encoding="utf-8")
 
     # Check if already patched
-    if "enhanced-viewer-link" in content:
+    if "plurk-logo-link" in content:
         print("index.html already patched, skipping")
         return False
 
-    # The link to inject - styled to match Plurk's top bar
-    link_html = '''<a id="enhanced-viewer-link" href="/landing.html" style="color: #fff; text-decoration: none; padding: 8px 16px; background: #cf682f; border-radius: 4px; margin-left: 16px; font-size: 14px;">Enhanced Viewer</a>'''
-
-    # Try to inject after the backup-info div
-    # Pattern: <div id="backup-info"></div>
-    pattern = r'(<div id="backup-info"></div>)'
-    replacement = r'\1' + link_html
+    # Wrap plurk-logo contents in a link to /landing.html
+    # Original: <div id="plurk-logo"><span ...></span><span ...></span></div>
+    # Patched:  <div id="plurk-logo"><a id="plurk-logo-link" href="/landing.html" ...>...</a></div>
+    pattern = r'(<div id="plurk-logo">)(.*?)(</div>)'
+    link_open = '<a id="plurk-logo-link" href="/landing.html" style="text-decoration: none;">'
+    link_close = '</a>'
+    replacement = rf'\1{link_open}\2{link_close}\3'
 
     new_content, count = re.subn(pattern, replacement, content)
 
     if count == 0:
-        # Fallback: inject after top-bar opening
-        pattern = r'(<div id="top-bar"[^>]*>)'
-        replacement = r'\1' + link_html
-        new_content, count = re.subn(pattern, replacement, content)
-
-    if count == 0:
-        print("Error: Could not find injection point in index.html", file=sys.stderr)
+        print("Error: Could not find plurk-logo div in index.html", file=sys.stderr)
         return False
 
     index_file.write_text(new_content, encoding="utf-8")
