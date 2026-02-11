@@ -735,8 +735,48 @@
         logArea.scrollTop = logArea.scrollHeight;
     }
 
+    // --- Check for running task on page load ---
+    async function checkRunningTask() {
+        try {
+            const res = await fetch('/api/admin/status');
+            const status = await res.json();
+            if (status.status === 'idle') return;
+
+            const taskType = status.type || 'init';
+            const statusMap = { upload: [uploadStatus, uploadProgress],
+                                init: [initStatus, initProgress],
+                                extract: [extractStatus, extractProgress],
+                                fetch: [fetchStatus, fetchProgress] };
+            const [statusEl, progressEl] = statusMap[taskType] || statusMap.init;
+
+            // Show existing log
+            if (status.log && status.log.length > 0) {
+                logArea.textContent = '';
+                for (const line of status.log) {
+                    appendLog(line, status.status === 'error' && line === status.error);
+                }
+                lastLogLength = status.log.length;
+            }
+
+            if (status.status === 'running') {
+                disableAllButtons();
+                if (status.progress) statusEl.textContent = status.progress;
+                progressEl.style.display = 'block';
+                progressEl.classList.add('indeterminate');
+                startPolling(taskType);
+            } else {
+                // done or error — show final state
+                progressEl.style.display = 'none';
+                statusEl.textContent = status.status === 'done' ? t('complete') : t('failed');
+            }
+        } catch (e) {
+            // Server not reachable or no task — ignore
+        }
+    }
+
     // --- Init ---
     setLang(currentLang);
+    checkRunningTask();
 })();
 </script>
 </body>
