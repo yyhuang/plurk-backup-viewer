@@ -88,17 +88,17 @@ class SearchDB:
                 rows = conn.execute(
                     """
                     SELECT p.id, p.base_id, p.content_raw, p.posted, p.qualifier,
-                           p.response_count, 'plurk' as type
+                           p.response_count, 'plurk' as type, p.posted_ts
                     FROM plurks p
                     JOIN plurks_fts ON plurks_fts.rowid = p.id
                     WHERE plurks_fts MATCH ?
                     UNION ALL
                     SELECT r.id, r.base_id, r.content_raw, r.posted, r.user_nick,
-                           r.user_display, 'response' as type
+                           r.user_display, 'response' as type, r.posted_ts
                     FROM responses r
                     JOIN responses_fts ON responses_fts.rowid = r.id
                     WHERE responses_fts MATCH ?
-                    ORDER BY posted DESC
+                    ORDER BY posted_ts DESC
                     LIMIT ? OFFSET ?
                     """,
                     (fts_query, fts_query, RESULTS_PER_PAGE, offset),
@@ -121,7 +121,7 @@ class SearchDB:
                     FROM plurks p
                     JOIN plurks_fts ON plurks_fts.rowid = p.id
                     WHERE plurks_fts MATCH ?
-                    ORDER BY p.posted DESC
+                    ORDER BY p.posted_ts DESC
                     LIMIT ? OFFSET ?
                     """,
                     (fts_query, RESULTS_PER_PAGE, offset),
@@ -141,7 +141,7 @@ class SearchDB:
                     FROM responses r
                     JOIN responses_fts ON responses_fts.rowid = r.id
                     WHERE responses_fts MATCH ?
-                    ORDER BY r.posted DESC
+                    ORDER BY r.posted_ts DESC
                     LIMIT ? OFFSET ?
                     """,
                     (fts_query, RESULTS_PER_PAGE, offset),
@@ -160,15 +160,15 @@ class SearchDB:
                 rows = conn.execute(
                     """
                     SELECT id, base_id, content_raw, posted, qualifier,
-                           response_count, 'plurk' as type
+                           response_count, 'plurk' as type, posted_ts
                     FROM plurks
                     WHERE content_raw LIKE ? ESCAPE '\\'
                     UNION ALL
                     SELECT id, base_id, content_raw, posted, user_nick,
-                           user_display, 'response' as type
+                           user_display, 'response' as type, posted_ts
                     FROM responses
                     WHERE content_raw LIKE ? ESCAPE '\\'
-                    ORDER BY posted DESC
+                    ORDER BY posted_ts DESC
                     LIMIT ? OFFSET ?
                     """,
                     (like_pattern, like_pattern, RESULTS_PER_PAGE, offset),
@@ -190,7 +190,7 @@ class SearchDB:
                            response_count, 'plurk' as type
                     FROM plurks
                     WHERE content_raw LIKE ? ESCAPE '\\'
-                    ORDER BY posted DESC
+                    ORDER BY posted_ts DESC
                     LIMIT ? OFFSET ?
                     """,
                     (like_pattern, RESULTS_PER_PAGE, offset),
@@ -209,7 +209,7 @@ class SearchDB:
                            user_display, 'response' as type
                     FROM responses
                     WHERE content_raw LIKE ? ESCAPE '\\'
-                    ORDER BY posted DESC
+                    ORDER BY posted_ts DESC
                     LIMIT ? OFFSET ?
                     """,
                     (like_pattern, RESULTS_PER_PAGE, offset),

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from database import create_schema
+from database import create_schema, to_epoch
 from links_cmd import create_link_metadata_table, upsert_link, update_og_metadata, OGResult
 from search_api import SearchDB
 
@@ -18,28 +18,25 @@ def db_with_data(tmp_path: Path):
     create_schema(conn)
 
     # Insert plurks
-    conn.execute(
-        "INSERT INTO plurks (id, base_id, content_raw, posted, response_count, qualifier) VALUES (?, ?, ?, ?, ?, ?)",
-        (1, "abc", "hello world plurk", "Wed, 31 Oct 2018 16:00:47 GMT", 2, "says"),
-    )
-    conn.execute(
-        "INSERT INTO plurks (id, base_id, content_raw, posted, response_count, qualifier) VALUES (?, ?, ?, ?, ?, ?)",
-        (2, "def", "another test plurk", "Thu, 01 Nov 2018 10:00:00 GMT", 0, "thinks"),
-    )
-    conn.execute(
-        "INSERT INTO plurks (id, base_id, content_raw, posted, response_count, qualifier) VALUES (?, ?, ?, ?, ?, ?)",
-        (3, "ghi", "unique keyword here", "Fri, 02 Nov 2018 12:00:00 GMT", 1, None),
-    )
+    for posted, args in [
+        ("Wed, 31 Oct 2018 16:00:47 GMT", (1, "abc", "hello world plurk", 2, "says")),
+        ("Thu, 01 Nov 2018 10:00:00 GMT", (2, "def", "another test plurk", 0, "thinks")),
+        ("Fri, 02 Nov 2018 12:00:00 GMT", (3, "ghi", "unique keyword here", 1, None)),
+    ]:
+        conn.execute(
+            "INSERT INTO plurks (id, base_id, content_raw, posted, posted_ts, response_count, qualifier) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (args[0], args[1], args[2], posted, to_epoch(posted), args[3], args[4]),
+        )
 
     # Insert responses
-    conn.execute(
-        "INSERT INTO responses (id, base_id, content_raw, posted, user_id, user_nick, user_display) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (100, "abc", "response hello", "Wed, 31 Oct 2018 17:00:00 GMT", 999, "responder", "Responder User"),
-    )
-    conn.execute(
-        "INSERT INTO responses (id, base_id, content_raw, posted, user_id, user_nick, user_display) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (101, "abc", "another reply", "Wed, 31 Oct 2018 18:00:00 GMT", 999, "responder", "Responder User"),
-    )
+    for posted, args in [
+        ("Wed, 31 Oct 2018 17:00:00 GMT", (100, "abc", "response hello", 999, "responder", "Responder User")),
+        ("Wed, 31 Oct 2018 18:00:00 GMT", (101, "abc", "another reply", 999, "responder", "Responder User")),
+    ]:
+        conn.execute(
+            "INSERT INTO responses (id, base_id, content_raw, posted, posted_ts, user_id, user_nick, user_display) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (args[0], args[1], args[2], posted, to_epoch(posted), args[3], args[4], args[5]),
+        )
 
     conn.commit()
     conn.close()

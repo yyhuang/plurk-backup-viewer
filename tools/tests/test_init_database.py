@@ -24,6 +24,7 @@ class TestCreateSchema:
         assert "base_id" in columns
         assert "content_raw" in columns
         assert "posted" in columns
+        assert "posted_ts" in columns
         assert "response_count" in columns
         assert "qualifier" in columns
         conn.close()
@@ -41,6 +42,7 @@ class TestCreateSchema:
         assert "base_id" in columns
         assert "content_raw" in columns
         assert "posted" in columns
+        assert "posted_ts" in columns
         assert "user_id" in columns
         assert "user_nick" in columns
         assert "user_display" in columns

@@ -4,6 +4,7 @@ import argparse
 import sqlite3
 import sys
 from datetime import date
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from utils import (
@@ -117,6 +118,24 @@ def connect_with_icu(
     return conn, icu_loaded
 
 
+def to_epoch(posted_str: str | None) -> int | None:
+    """Convert RFC 2822 date string to Unix epoch seconds.
+
+    Args:
+        posted_str: Date string like "Wed, 31 Oct 2018 16:00:47 GMT"
+
+    Returns:
+        Unix epoch as int, or None if parsing fails
+    """
+    if not posted_str:
+        return None
+    try:
+        dt = parsedate_to_datetime(posted_str)
+        return int(dt.timestamp())
+    except Exception:
+        return None
+
+
 def create_schema(conn: sqlite3.Connection, tokenizer: str = "unicode61") -> None:
     """Create database schema with FTS5 tables and triggers.
 
@@ -131,6 +150,7 @@ def create_schema(conn: sqlite3.Connection, tokenizer: str = "unicode61") -> Non
             base_id TEXT,
             content_raw TEXT,
             posted TEXT,
+            posted_ts INTEGER,
             response_count INTEGER,
             qualifier TEXT
         );
@@ -140,10 +160,14 @@ def create_schema(conn: sqlite3.Connection, tokenizer: str = "unicode61") -> Non
             base_id TEXT,
             content_raw TEXT,
             posted TEXT,
+            posted_ts INTEGER,
             user_id INTEGER,
             user_nick TEXT,
             user_display TEXT
         );
+
+        CREATE INDEX IF NOT EXISTS idx_plurks_posted_ts ON plurks(posted_ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_responses_posted_ts ON responses(posted_ts DESC);
 
         -- FTS5 virtual tables for full-text search
         CREATE VIRTUAL TABLE IF NOT EXISTS plurks_fts USING fts5(
@@ -209,14 +233,15 @@ def import_plurks(
         for p in plurks:
             cursor = conn.execute(
                 """
-                INSERT OR IGNORE INTO plurks (id, base_id, content_raw, posted, response_count, qualifier)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO plurks (id, base_id, content_raw, posted, posted_ts, response_count, qualifier)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     p["id"],
                     p.get("base_id"),
                     p.get("content_raw"),
                     p.get("posted"),
+                    to_epoch(p.get("posted")),
                     p.get("response_count"),
                     p.get("qualifier"),
                 ),
@@ -250,14 +275,15 @@ def import_responses(
             user = r.get("user", {})
             cursor = conn.execute(
                 """
-                INSERT OR IGNORE INTO responses (id, base_id, content_raw, posted, user_id, user_nick, user_display)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO responses (id, base_id, content_raw, posted, posted_ts, user_id, user_nick, user_display)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     r["id"],
                     base_id,
                     r.get("content_raw"),
                     r.get("posted"),
+                    to_epoch(r.get("posted")),
                     user.get("id"),
                     user.get("nick_name"),
                     user.get("display_name"),
@@ -269,6 +295,51 @@ def import_responses(
                 skipped_count += 1
 
     return new_count, skipped_count
+
+
+def ensure_posted_ts_column(conn: sqlite3.Connection) -> None:
+    """Add posted_ts column to plurks and responses if missing, and backfill.
+
+    This is a migration for existing databases that lack the column.
+    Safe to call multiple times (idempotent).
+
+    Args:
+        conn: SQLite connection
+    """
+    for table in ("plurks", "responses"):
+        # Check if column exists
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "posted_ts" in cols:
+            continue
+
+        print(f"  Adding posted_ts column to {table}...")
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN posted_ts INTEGER")
+
+        # Backfill in batches
+        batch_size = 5000
+        total = 0
+        while True:
+            rows = conn.execute(
+                f"SELECT id, posted FROM {table} WHERE posted_ts IS NULL LIMIT ?",
+                (batch_size,),
+            ).fetchall()
+            if not rows:
+                break
+            for row_id, posted_str in rows:
+                epoch = to_epoch(posted_str)
+                conn.execute(
+                    f"UPDATE {table} SET posted_ts = ? WHERE id = ?",
+                    (epoch, row_id),
+                )
+            conn.commit()
+            total += len(rows)
+            print(f"    Backfilled {total} rows in {table}...")
+
+        conn.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{table}_posted_ts ON {table}(posted_ts DESC)"
+        )
+        conn.commit()
+        print(f"  Done migrating {table}")
 
 
 def main() -> int:
@@ -303,6 +374,7 @@ def main() -> int:
     if is_incremental:
         print(f"Updating existing database: {args.output_db}")
         conn = sqlite3.connect(args.output_db)
+        ensure_posted_ts_column(conn)
 
         # Calculate scan range based on latest data
         scan_start, scan_end = calculate_scan_range(conn, date.today())

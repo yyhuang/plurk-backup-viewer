@@ -113,8 +113,10 @@ def calculate_scan_range(
     Returns:
         (scan_start, scan_end) as "YYYY-MM" strings, or (None, None) for empty DB
     """
-    result = conn.execute("SELECT MAX(posted) FROM plurks").fetchone()
-    latest_in_db = result[0]
+    result = conn.execute(
+        "SELECT posted FROM plurks WHERE posted_ts = (SELECT MAX(posted_ts) FROM plurks)"
+    ).fetchone()
+    latest_in_db = result[0] if result else None
 
     if latest_in_db is None:
         # Empty DB: process all files

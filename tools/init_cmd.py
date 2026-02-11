@@ -15,6 +15,7 @@ from pathlib import Path
 from database import (
     connect_with_icu,
     create_schema,
+    ensure_posted_ts_column,
     import_plurks,
     import_responses,
     resolve_icu_extension,
@@ -94,6 +95,7 @@ def build_database(
 
     if is_incremental:
         print(f"Updating existing database: {db_path}")
+        ensure_posted_ts_column(conn)
         scan_start, scan_end = calculate_scan_range(conn, date.today())
         if scan_start:
             print(f"Scanning files from {scan_start} to {scan_end}")

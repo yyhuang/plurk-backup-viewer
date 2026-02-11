@@ -40,8 +40,8 @@ class TestCalculateScanRange:
 
         # Insert a plurk from 2025-06-15 (8 months ago from 2026-02-02)
         conn.execute(
-            "INSERT INTO plurks (id, posted) VALUES (?, ?)",
-            (1, "2025-06-15T10:30:00"),
+            "INSERT INTO plurks (id, posted, posted_ts) VALUES (?, ?, ?)",
+            (1, "Sun, 15 Jun 2025 10:30:00 GMT", 1750069800),
         )
         conn.commit()
 
@@ -58,8 +58,8 @@ class TestCalculateScanRange:
 
         # Insert a plurk from 2025-12-31 (2 months ago from 2026-02-02)
         conn.execute(
-            "INSERT INTO plurks (id, posted) VALUES (?, ?)",
-            (1, "2025-12-31T23:59:59"),
+            "INSERT INTO plurks (id, posted, posted_ts) VALUES (?, ?, ?)",
+            (1, "Wed, 31 Dec 2025 23:59:59 GMT", 1767225599),
         )
         conn.commit()
 
@@ -76,8 +76,8 @@ class TestCalculateScanRange:
 
         # Insert a plurk from 2025-08-02 (exactly 6 months ago from 2026-02-02)
         conn.execute(
-            "INSERT INTO plurks (id, posted) VALUES (?, ?)",
-            (1, "2025-08-02T10:00:00"),
+            "INSERT INTO plurks (id, posted, posted_ts) VALUES (?, ?, ?)",
+            (1, "Sat, 02 Aug 2025 10:00:00 GMT", 1754211600),
         )
         conn.commit()
 
