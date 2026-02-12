@@ -443,6 +443,10 @@ class AdminHandler(http.server.BaseHTTPRequestHandler):
             self._serve_file(self.viewer_dir / "admin.html", "text/html")
             return
 
+        if self.path == "/version.js":
+            self._serve_file(self.viewer_dir / "version.js", "application/javascript")
+            return
+
         if self.path == "/api/admin/info":
             self._handle_info()
             return

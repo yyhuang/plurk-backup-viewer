@@ -222,6 +222,10 @@
                     <span class="label" data-i18n="links">Links</span>
                     <span class="value" id="st-links">-</span>
                 </div>
+                <div class="status-item">
+                    <span class="label" data-i18n="version">Version</span>
+                    <span class="value" id="app-version">-</span>
+                </div>
             </div>
         </div>
 
@@ -290,6 +294,7 @@
         </div>
     </div>
 
+<script src="version.js"></script>
 <script>
 (function() {
     const $ = id => document.getElementById(id);
@@ -319,6 +324,7 @@
             extractLinks: 'Extract Links',
             extractDesc: 'Re-scan posts for links. Only needed if the automatic extraction during build was interrupted.',
             extractBtn: 'Extract All Links',
+            version: 'Version',
             // Dynamic status strings
             found: 'Found',
             notFound: 'Not found',
@@ -365,6 +371,7 @@
             extractLinks: '提取連結',
             extractDesc: '重新掃描文章中的連結。僅在建立資料庫時的自動提取被中斷時才需要使用。',
             extractBtn: '提取所有連結',
+            version: '版本',
             found: '已找到',
             notFound: '未找到',
             ready: '就緒',
@@ -777,6 +784,11 @@
     // --- Init ---
     setLang(currentLang);
     checkRunningTask();
+
+    // Display version
+    if (typeof APP_VERSION !== 'undefined') {
+        $('app-version').textContent = 'v' + APP_VERSION;
+    }
 })();
 </script>
 </body>

@@ -120,7 +120,8 @@ class TestEnsurePostedTsColumn:
         assert count == 2
         conn.close()
 
-    def test_creates_index(self, tmp_path: Path):
+    def test_no_posted_ts_index(self, tmp_path: Path):
+        """posted_ts is only used for ORDER BY after FTS/LIKE filtering, no index needed."""
         db_path = self._create_legacy_db(tmp_path)
         conn = sqlite3.connect(db_path)
         ensure_posted_ts_column(conn)
@@ -129,13 +130,13 @@ class TestEnsurePostedTsColumn:
             row[1]
             for row in conn.execute("PRAGMA index_list(plurks)").fetchall()
         }
-        assert "idx_plurks_posted_ts" in indexes
+        assert "idx_plurks_posted_ts" not in indexes
 
         indexes = {
             row[1]
             for row in conn.execute("PRAGMA index_list(responses)").fetchall()
         }
-        assert "idx_responses_posted_ts" in indexes
+        assert "idx_responses_posted_ts" not in indexes
         conn.close()
 
 

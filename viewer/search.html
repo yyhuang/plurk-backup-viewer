@@ -288,6 +288,7 @@
         </div>
         <span style="float: left; color: #fff; font-size: 14px; font-weight: bold; line-height: 42px; margin-left: 12px;">Plurk Backup Viewer</span>
         <div id="backup-info"></div>
+        <span id="app-version" style="float:right;color:rgba(255,255,255,0.5);font-size:12px;line-height:42px;margin-right:12px;"></span>
     </div>
 
     <div class="search-container">
@@ -351,6 +352,7 @@
         </div>
     </div>
 
+    <script src="version.js"></script>
     <script>
         let currentPage = 0;
         let currentQuery = '';
@@ -899,6 +901,11 @@
         // Set backup date in top bar
         document.getElementById('backup-info').textContent =
             'Backup: ' + new Date(BackupData.info.backup_date).toLocaleDateString();
+
+        // Display version
+        if (typeof APP_VERSION !== 'undefined') {
+            document.getElementById('app-version').textContent = 'v' + APP_VERSION;
+        }
 
         // Initialize on load
         initDatabase();

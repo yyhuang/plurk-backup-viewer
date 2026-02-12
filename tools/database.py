@@ -166,9 +166,6 @@ def create_schema(conn: sqlite3.Connection, tokenizer: str = "unicode61") -> Non
             user_display TEXT
         );
 
-        CREATE INDEX IF NOT EXISTS idx_plurks_posted_ts ON plurks(posted_ts DESC);
-        CREATE INDEX IF NOT EXISTS idx_responses_posted_ts ON responses(posted_ts DESC);
-
         -- FTS5 virtual tables for full-text search
         CREATE VIRTUAL TABLE IF NOT EXISTS plurks_fts USING fts5(
             content_raw,
@@ -335,10 +332,6 @@ def ensure_posted_ts_column(conn: sqlite3.Connection) -> None:
             total += len(rows)
             print(f"    Backfilled {total} rows in {table}...")
 
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_{table}_posted_ts ON {table}(posted_ts DESC)"
-        )
-        conn.commit()
         print(f"  Done migrating {table}")
 
 
