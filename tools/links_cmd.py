@@ -432,6 +432,14 @@ def upsert_link(conn: sqlite3.Connection, url: str, new_sources: dict, month: st
         return False
 
 
+def _sanitize_text(s: str | None) -> str | None:
+    """Strip NUL bytes and control characters that break FTS5 tokenizers."""
+    if s is None:
+        return None
+    # Remove NUL bytes and C0 control chars (except tab, newline, carriage return)
+    return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', s)
+
+
 def update_og_metadata(conn: sqlite3.Connection, result: OGResult) -> None:
     """Update a URL's OG metadata in the database."""
     now = datetime.now(timezone.utc).isoformat()
@@ -440,7 +448,14 @@ def update_og_metadata(conn: sqlite3.Connection, result: OGResult) -> None:
            SET og_title = ?, og_description = ?, og_site_name = ?,
                status = ?, fetched_at = ?
            WHERE url = ?""",
-        (result.title, result.description, result.site_name, result.status, now, result.url),
+        (
+            _sanitize_text(result.title),
+            _sanitize_text(result.description),
+            _sanitize_text(result.site_name),
+            result.status,
+            now,
+            result.url,
+        ),
     )
 
 

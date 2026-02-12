@@ -907,6 +907,112 @@ class TestICUExtensionLoading:
         conn.close()
 
 
+class TestOgMetadataSanitization:
+    """Tests that OG metadata with problematic characters doesn't break FTS5.
+
+    Facebook and other sites sometimes return OG metadata containing NUL bytes
+    or control characters. These can cause 'SQL logic error' when the FTS5
+    after-update trigger tries to tokenize the text.
+
+    Regression test for: https://www.facebook.com/share/p/1PfsYXp3hc/
+    which caused 'DB error: SQL logic error' during links fetch.
+    """
+
+    @pytest.fixture
+    def db_with_pending_url(self):
+        """Create in-memory DB with FTS5 triggers and a pending URL."""
+        conn = sqlite3.connect(":memory:")
+        create_link_metadata_table(conn)
+        conn.execute(
+            "INSERT INTO link_metadata (url, sources, status, source_month) VALUES (?, ?, ?, ?)",
+            ("https://www.facebook.com/share/p/1PfsYXp3hc/",
+             '{"plurk_ids": [1], "response_ids": []}', "pending", "2025_07"),
+        )
+        conn.commit()
+        yield conn
+        conn.close()
+
+    def test_nul_bytes_in_og_title(self, db_with_pending_url):
+        """OG title with NUL bytes should not cause SQL logic error."""
+        conn = db_with_pending_url
+        result = OGResult(
+            url="https://www.facebook.com/share/p/1PfsYXp3hc/",
+            status="success",
+            title="Some\x00Title\x00Here",
+            description="Normal description",
+            site_name="Facebook",
+        )
+        update_og_metadata(conn, result)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT og_title, status FROM link_metadata WHERE url = ?",
+            (result.url,),
+        ).fetchone()
+        assert row[1] == "success"
+        assert "\x00" not in row[0]  # NUL bytes should be stripped
+
+    def test_control_chars_in_og_description(self, db_with_pending_url):
+        """OG description with control characters should not cause SQL logic error."""
+        conn = db_with_pending_url
+        result = OGResult(
+            url="https://www.facebook.com/share/p/1PfsYXp3hc/",
+            status="success",
+            title="Normal Title",
+            description="Text with\x01bell\x02and\x03control\x1fchars",
+            site_name="Facebook",
+        )
+        update_og_metadata(conn, result)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT og_description FROM link_metadata WHERE url = ?",
+            (result.url,),
+        ).fetchone()
+        # Control chars should be stripped, but text preserved
+        assert "Text with" in row[0]
+        assert "control" in row[0]
+
+    def test_preserves_tabs_newlines(self, db_with_pending_url):
+        """Tabs, newlines, and carriage returns should be preserved."""
+        conn = db_with_pending_url
+        result = OGResult(
+            url="https://www.facebook.com/share/p/1PfsYXp3hc/",
+            status="success",
+            title="Title\twith\ttabs",
+            description="Line1\nLine2\r\nLine3",
+        )
+        update_og_metadata(conn, result)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT og_title, og_description FROM link_metadata WHERE url = ?",
+            (result.url,),
+        ).fetchone()
+        assert "\t" in row[0]
+        assert "\n" in row[1]
+
+    def test_fts_searchable_after_sanitization(self, db_with_pending_url):
+        """FTS index should be searchable after sanitized update."""
+        conn = db_with_pending_url
+        result = OGResult(
+            url="https://www.facebook.com/share/p/1PfsYXp3hc/",
+            status="success",
+            title="Facebook\x00Post",
+            description="Interesting\x00content here",
+            site_name="Facebook",
+        )
+        update_og_metadata(conn, result)
+        conn.commit()
+
+        # Should be searchable in FTS after sanitization
+        fts_row = conn.execute(
+            "SELECT og_title FROM link_metadata_fts WHERE link_metadata_fts MATCH ?",
+            ('"FacebookPost"',),
+        ).fetchone()
+        assert fts_row is not None
+
+
 class TestTransactionRollback:
     """Tests that DB errors during fetch don't leave the database locked.
 
