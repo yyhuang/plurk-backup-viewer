@@ -4,6 +4,8 @@ English | [繁體中文](README.zh-TW.md)
 
 Enhanced viewer for Plurk backup data with full-text search, link search, and CJK support.
 
+**Your data stays on your machine.** All backup data and the search database are stored locally in the `data/` directory. Nothing is uploaded to the internet — the entire application runs on your own computer. The optional Cloudflare Tunnel only exposes the search interface you choose to share.
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/)

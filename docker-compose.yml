@@ -4,8 +4,8 @@ services:
     platform: linux/amd64
     build: .
     ports:
-      - "8000:8000"
-      - "8001:8001"
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8001"
     environment:
       - TUNNEL_TOKEN=${TUNNEL_TOKEN}
     volumes:
