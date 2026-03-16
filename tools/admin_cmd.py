@@ -37,6 +37,9 @@ from utils import (
 TOOL_ROOT = Path(__file__).parent.parent
 VIEWER_DIR = TOOL_ROOT / "viewer"
 
+# Max upload size: 1 GB
+MAX_UPLOAD_SIZE = 1 * 1024 * 1024 * 1024
+
 
 class TaskTracker:
     """Thread-safe tracker for a single background task (upload or init)."""
@@ -534,6 +537,15 @@ class AdminHandler(http.server.BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             self._send_json({"error": "Empty body"}, 400)
+            return
+
+        if content_length > MAX_UPLOAD_SIZE:
+            size_mb = content_length / 1024 / 1024
+            limit_mb = MAX_UPLOAD_SIZE / 1024 / 1024
+            self._send_json(
+                {"error": f"File too large ({size_mb:.0f} MB). Max upload size is {limit_mb:.0f} MB."},
+                413,
+            )
             return
 
         if not self.tracker.start("upload"):

@@ -20,14 +20,11 @@ class SearchDB:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn, icu_loaded = connect_with_icu(
+            self._conn, _icu_loaded = connect_with_icu(
                 self.db_path,
                 self.icu_extension_path,
                 row_factory=sqlite3.Row,
             )
-            if self.icu_extension_path and not icu_loaded:
-                print("  Falling back to unicode61 tokenizer")
-                self.icu_extension_path = None
         return self._conn
 
     def close(self) -> None:
@@ -71,6 +68,9 @@ class SearchDB:
         Returns:
             Dict with results, total, page, pages keys
         """
+        query = query.strip()
+        if not query:
+            return {"results": [], "total": 0, "page": page, "pages": 0}
         if search_type == "links":
             return self._search_links(query, mode, page)
         return self._search_content(query, search_type, mode, page)

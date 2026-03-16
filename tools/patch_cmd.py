@@ -43,11 +43,12 @@ def patch_index_html(backup_path: Path) -> bool:
     # Original: <div id="plurk-logo"><span ...></span><span ...></span></div>
     # Patched:  <div id="plurk-logo"><a id="plurk-logo-link" href="/landing.html" ...>...</a></div>
     pattern = r'(<div id="plurk-logo">)(.*?)(</div>)'
+    # re.S so .*? matches newlines in multiline HTML
     link_open = '<a id="plurk-logo-link" href="/landing.html" style="text-decoration: none;">'
     link_close = '</a>'
     replacement = rf'\1{link_open}\2{link_close}\3'
 
-    new_content, count = re.subn(pattern, replacement, content)
+    new_content, count = re.subn(pattern, replacement, content, flags=re.S)
 
     if count == 0:
         print("Error: Could not find plurk-logo div in index.html", file=sys.stderr)

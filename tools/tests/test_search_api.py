@@ -312,3 +312,29 @@ class TestSearchDBQueryBuilding:
 
     def test_build_like_pattern_escapes_underscore(self):
         assert SearchDB._build_like_pattern("a_b") == "%a\\_b%"
+
+    def test_build_fts_query_whitespace_only(self):
+        """Whitespace-only input should return empty string, not crash FTS5."""
+        assert SearchDB._build_fts_query("   ") == ""
+
+    def test_build_fts_query_empty(self):
+        """Empty input should return empty string."""
+        assert SearchDB._build_fts_query("") == ""
+
+
+class TestSearchDBWhitespaceQuery:
+    """Whitespace-only queries should return empty results, not crash."""
+
+    def test_fts_search_whitespace_query(self, db_with_data: Path):
+        db = SearchDB(db_with_data)
+        result = db.search("   ", "all", "fts", 0)
+        assert result["total"] == 0
+        assert result["results"] == []
+        db.close()
+
+    def test_like_search_whitespace_query(self, db_with_data: Path):
+        db = SearchDB(db_with_data)
+        result = db.search("   ", "all", "like", 0)
+        assert result["total"] == 0
+        assert result["results"] == []
+        db.close()

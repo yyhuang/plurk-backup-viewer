@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from admin_cmd import TaskTracker, extract_zip, make_admin_handler
+from admin_cmd import MAX_UPLOAD_SIZE, TaskTracker, extract_zip, make_admin_handler
 from database import create_schema
 
 
@@ -296,6 +296,22 @@ class TestAdminAPI:
         with pytest.raises(HTTPError) as exc_info:
             urlopen(req)
         assert exc_info.value.code == 409
+
+    def test_upload_too_large(self, admin_server):
+        """Upload with Content-Length exceeding MAX_UPLOAD_SIZE is rejected."""
+        url, _, _ = admin_server
+        from urllib.error import HTTPError
+        fake_size = MAX_UPLOAD_SIZE + 1
+        req = Request(
+            f"{url}/api/admin/upload", method="POST", data=b"x",
+            headers={"Content-Type": "application/zip",
+                     "Content-Length": str(fake_size)},
+        )
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(req)
+        assert exc_info.value.code == 413
+        body = json.loads(exc_info.value.read())
+        assert "too large" in body["error"].lower()
 
     def test_not_found(self, admin_server):
         url, _, _ = admin_server

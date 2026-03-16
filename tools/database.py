@@ -1,6 +1,5 @@
 """Create or update SQLite database with FTS5 from Plurk backup."""
 
-import argparse
 import sqlite3
 import sys
 from datetime import date
@@ -111,7 +110,11 @@ def connect_with_icu(
                 load_icu_extension(conn, path)
                 icu_loaded = True
             except Exception as e:
-                print(f"Warning: Failed to load ICU extension: {e}")
+                conn.close()
+                raise RuntimeError(
+                    f"Failed to load ICU extension from {path}: {e}\n"
+                    "Fix: install the correct ICU extension, or remove it to use unicode61 fallback."
+                ) from e
     except Exception:
         conn.close()
         raise
@@ -333,86 +336,3 @@ def ensure_posted_ts_column(conn: sqlite3.Connection) -> None:
             print(f"    Backfilled {total} rows in {table}...")
 
         print(f"  Done migrating {table}")
-
-
-def main() -> int:
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Create or update SQLite database from Plurk backup."
-    )
-    parser.add_argument(
-        "backup_path",
-        type=Path,
-        help="Path to backup directory (e.g., username-backup)",
-    )
-    parser.add_argument(
-        "output_db",
-        type=Path,
-        help="Path for output database (e.g., plurks.db)",
-    )
-    args = parser.parse_args()
-
-    # Validate backup directory
-    if not validate_backup_dir(args.backup_path):
-        print(f"Error: Invalid backup directory: {args.backup_path}", file=sys.stderr)
-        print("Required: data/plurks/, data/responses/, data/indexes.js", file=sys.stderr)
-        return 1
-
-    plurks_dir = args.backup_path / "data" / "plurks"
-    responses_dir = args.backup_path / "data" / "responses"
-
-    # Check if this is a fresh import or incremental update
-    is_incremental = args.output_db.exists()
-
-    if is_incremental:
-        print(f"Updating existing database: {args.output_db}")
-        conn = sqlite3.connect(args.output_db)
-        ensure_posted_ts_column(conn)
-
-        # Calculate scan range based on latest data
-        scan_start, scan_end = calculate_scan_range(conn, date.today())
-        if scan_start:
-            print(f"Scanning files from {scan_start} to {scan_end}")
-        else:
-            print("Database is empty, importing all files")
-    else:
-        print(f"Creating new database: {args.output_db}")
-        conn = sqlite3.connect(args.output_db)
-        create_schema(conn)
-        scan_start, scan_end = None, None
-
-    # Filter plurk files based on scan range
-    plurk_files = filter_plurk_files(plurks_dir, scan_start, scan_end)
-    print(f"Processing {len(plurk_files)} plurk files...")
-
-    # Import plurks
-    plurk_new, plurk_skipped = import_plurks(conn, plurk_files)
-
-    # Get base_ids for response filtering
-    base_ids = get_base_ids_from_plurks(plurk_files)
-
-    # Filter response files
-    response_files = filter_response_files(responses_dir, base_ids)
-    print(f"Processing {len(response_files)} response files...")
-
-    # Import responses
-    response_new, response_skipped = import_responses(conn, response_files)
-
-    conn.commit()
-    conn.close()
-
-    # Print summary
-    print()
-    if is_incremental:
-        print(f"Plurks: {plurk_new} new, {plurk_skipped} skipped")
-        print(f"Responses: {response_new} new, {response_skipped} skipped")
-        print(f"Done! Database updated at {args.output_db}")
-    else:
-        print(f"Imported {plurk_new} plurks, {response_new} responses")
-        print(f"Done! Database created at {args.output_db}")
-
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

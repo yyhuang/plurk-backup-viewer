@@ -7,7 +7,7 @@ FROM ${BASE_IMAGE}
 # Copy tools and install dependencies
 WORKDIR /app
 COPY tools/ /app/tools/
-RUN cd /app/tools && uv sync --frozen
+RUN cd /app/tools && uv sync --frozen --no-dev
 
 # Copy entrypoint
 COPY docker/entrypoint.sh /app/entrypoint.sh

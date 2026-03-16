@@ -227,11 +227,12 @@ class TestUpsertLink:
     """Tests for upserting links to database."""
 
     @pytest.fixture
-    def db(self, tmp_path: Path):
+    def db(self):
         """Create in-memory database with schema."""
         conn = sqlite3.connect(":memory:")
         create_link_metadata_table(conn)
-        return conn
+        yield conn
+        conn.close()
 
     def test_insert_new_link(self, db: sqlite3.Connection):
         """Insert a new URL into database."""
@@ -315,12 +316,14 @@ class TestCreateLinkMetadataTable:
             "SELECT name FROM sqlite_master WHERE type='table' AND name='link_metadata_fts'"
         ).fetchone()
         assert result is not None
+        conn.close()
 
     def test_create_table_idempotent(self):
         """Creating table twice doesn't error."""
         conn = sqlite3.connect(":memory:")
         create_link_metadata_table(conn)
         create_link_metadata_table(conn)  # Should not raise
+        conn.close()
 
 
 class TestSourceMonth:
@@ -331,7 +334,8 @@ class TestSourceMonth:
         """Create in-memory database with schema."""
         conn = sqlite3.connect(":memory:")
         create_link_metadata_table(conn)
-        return conn
+        yield conn
+        conn.close()
 
     def test_upsert_stores_month(self, db: sqlite3.Connection):
         """Upsert stores source_month on insert."""
@@ -573,7 +577,8 @@ class TestIsOwnPlurkUrl:
             "INSERT INTO plurks (id, base_id, content_raw) VALUES (?, ?, ?)",
             (19811612, "bsmqk", "Test content"),
         )
-        return conn
+        yield conn
+        conn.close()
 
     def test_own_plurk_url_found(self, db_with_plurks):
         """Detect URL pointing to own plurk."""
@@ -620,7 +625,8 @@ class TestExtractSkipsOwnPlurks:
             (19811612, "bsmqk", "Test content"),
         )
         create_link_metadata_table(conn)
-        return conn
+        yield conn
+        conn.close()
 
     def test_own_plurk_url_not_inserted(self, db_with_plurks):
         """Own-plurk URL should be filtered before upsert."""
